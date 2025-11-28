@@ -2,13 +2,14 @@
 // @name         Gemini Thinking Counter
 // @name:zh-CN   Gemini 思考计数器
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Counts Gemini's "Thinking" mode interactions. Resets daily at 13:17. Supports file uploads and edits.
 // @description:zh-CN 统计 Gemini 在 Thinking 模式下的对话次数。支持文件发送、编辑和重做，每天 13:17 自动重置。
 // @author       Script Author
 // @match        https://gemini.google.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_addValueChangeListener
 // @run-at       document-end
 // ==/UserScript==
 
@@ -169,6 +170,13 @@
 
     function init() {
         console.log(LOG_PREFIX, 'Script initialized.');
+
+        // Listen for storage changes from other tabs to sync counter
+        GM_addValueChangeListener(STORAGE_KEY_COUNT, (name, oldVal, newVal, remote) => {
+            if (remote) {
+                updateDisplay();
+            }
+        });
 
         const initialInterval = setInterval(() => {
             if (document.querySelector('.ql-editor.textarea')) {
