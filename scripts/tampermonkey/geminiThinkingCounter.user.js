@@ -2,7 +2,7 @@
 // @name         Gemini Thinking Counter
 // @name:zh-CN   Gemini 思考计数器
 // @namespace    http://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Counts Gemini's "Thinking" mode interactions. Resets daily at 13:17. Supports file uploads and edits.
 // @description:zh-CN 统计 Gemini 在 Thinking 模式下的对话次数。支持文件发送、编辑和重做，每天 13:17 自动重置。
 // @author       Script Author
@@ -91,6 +91,17 @@
     }
 
     /**
+     * 检查是否有 @ 提及菜单或类似的浮层打开
+     * 用于防止在选择菜单项时回车误触发计数
+     */
+    function isMentionMenuOpen() {
+        // cdk-overlay-pane 是 Angular Material 的浮层容器，at-mentions-menu-panel 是特定的类
+        const menu = document.querySelector('.at-mentions-menu-panel');
+        // 确保它存在且可见
+        return menu && menu.offsetParent !== null;
+    }
+
+    /**
      * 检查输入框中是否有内容（文本或文件）
      */
     function hasUserContent() {
@@ -117,6 +128,12 @@
 
     function handleMainEnter(event) {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            // 如果菜单处于激活状态，则忽略回车键事件
+            if (isMentionMenuOpen()) {
+                console.log(LOG_PREFIX, 'Enter ignored: Mention menu is active.');
+                return;
+            }
+
             if (hasUserContent() && isThinkingMode()) {
                 incrementCount();
                 setTimeout(updateDisplay, 100);
@@ -127,6 +144,7 @@
     function handleUpdateEnter(event) {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
             const textarea = event.target;
+            // 编辑模式下一般无需处理 @ 菜单逻辑
             if (textarea.value.trim().length > 0 && isThinkingMode()) {
                 incrementCount();
             }
