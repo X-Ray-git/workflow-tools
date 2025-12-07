@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Gemini 快捷工作流 (Custom Prompt Edition)
-// @namespace    [http://tampermonkey.net/](http://tampermonkey.net/)
+// @namespace    http://tampermonkey.net/
 // @version      1.4
 // @description  Gemini 快捷键增强：Ctrl+O 新对话、Ctrl+Shift+N 临时对话、Ctrl+Shift+P 论文预设Prompt对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏。
 // @author       Script Author
-// @match        [https://gemini.google.com/](https://gemini.google.com/)*
+// @match        https://gemini.google.com/*
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
