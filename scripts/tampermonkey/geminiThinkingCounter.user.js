@@ -87,7 +87,7 @@
     function isThinkingMode() {
         const label = document.querySelector('bard-mode-switcher .input-area-switch-label span');
         if (!label) return false;
-        return label.textContent.trim().includes('Thinking');
+        return label.textContent.trim().includes('Pro');
     }
 
     /**
