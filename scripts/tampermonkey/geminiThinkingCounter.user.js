@@ -118,7 +118,7 @@
         const count = checkAndReset();
         const editor = document.querySelector('.ql-editor.textarea');
         if (editor) {
-            editor.setAttribute('data-placeholder', `Ask Gemini: ${count}`);
+            editor.setAttribute('data-placeholder', `Ask Gemini 3: ${count}`);
         }
     }
 
@@ -219,7 +219,7 @@
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     const editor = document.querySelector('.ql-editor.textarea');
-                    if (editor && !editor.getAttribute('data-placeholder').startsWith('Ask Gemini:')) {
+                    if (editor && !editor.getAttribute('data-placeholder').startsWith('Ask Gemini 3:')) {
                         updateDisplay();
                     }
                 }
