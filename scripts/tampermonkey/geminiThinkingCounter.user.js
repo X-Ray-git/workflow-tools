@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Gemini Thinking Counter
+// @name         Gemini Thinking Counter (Multi-Account)
 // @name:zh-CN   Gemini 思考计数器
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Counts Gemini's "Thinking" mode interactions. Resets daily at 13:17. Supports file uploads and edits.
-// @description:zh-CN 统计 Gemini 在 Thinking 模式下的对话次数。支持文件发送、编辑和重做，每天 13:17 自动重置。
+// @version      1.5
+// @description  Counts Gemini's "Thinking" mode interactions. Supports multiple accounts. Resets daily at 13:17.
+// @description:zh-CN 统计 Gemini 在 Thinking 模式下的对话次数。支持多账号独立计数、文件发送、编辑和重做，每天 13:17 自动重置。
 // @author       Script Author
 // @match        https://gemini.google.com/*
 // @grant        GM_setValue
@@ -23,11 +23,62 @@
     const RESET_MINUTE = 17;
     const COOLDOWN_MS = 1000;
 
-    const STORAGE_KEY_COUNT = 'gemini_thinking_count';
-    const STORAGE_KEY_LAST_RESET = 'gemini_last_reset_ts';
+    // 基础存储键（将根据账号 ID 添加后缀）
+    const BASE_KEY_COUNT = 'gemini_thinking_count';
+    const BASE_KEY_LAST_RESET = 'gemini_last_reset_ts';
 
-    // 内存变量，用于防抖
+    // 内存变量
     let lastIncrementTime = 0;
+    let currentAccountSuffix = '_default'; // 如果未找到邮箱，使用默认后缀
+
+    /**
+     * 尝试从 DOM 中查找当前用户的电子邮件地址以作为唯一 ID。
+     * 策略：
+     * 1. 搜索个人资料按钮上的特定 aria-label（Google 标准模式）。
+     * 2. 搜索用户提供的隐藏 hover-card 结构。
+     */
+    function getAccountIdentifier() {
+        // 用于提取邮箱的正则
+        const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/;
+
+        // 策略 1：检查带有 "Google Account" 或 "Google 帐号" aria-label 的元素
+        const buttons = document.querySelectorAll('a[aria-label], button[aria-label], div[aria-label]');
+        for (const btn of buttons) {
+            const label = btn.getAttribute('aria-label');
+            if (label && (label.includes('Google Account') || label.includes('Google 帐号'))) {
+                const match = label.match(emailRegex);
+                if (match) {
+                    return match[1];
+                }
+            }
+        }
+
+        // 策略 2：检查特定的隐藏结构（基于用户提供的 fallback）
+        const deepDivs = document.querySelectorAll('div');
+        for (const div of deepDivs) {
+            // 检查文本是否完全是邮箱地址
+            if (div.innerText && div.innerText.includes('@') && emailRegex.test(div.innerText)) {
+                // 启发式：正确的 div 通常有一个包含 "Google" 文本的父级
+                const parent = div.parentElement;
+                if (parent && parent.innerText.includes('Google')) {
+                     const match = div.innerText.match(emailRegex);
+                     if (match) return match[1];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 获取基于当前账号的动态存储键
+     */
+    function getStorageKeys() {
+        return {
+            countKey: `${BASE_KEY_COUNT}${currentAccountSuffix}`,
+            resetKey: `${BASE_KEY_LAST_RESET}${currentAccountSuffix}`
+        };
+    }
 
     /**
      * 获取逻辑上的“今天”的起始时间戳（即上一个 13:17）
@@ -42,19 +93,21 @@
     }
 
     /**
-     * 检查是否到达重置时间，并在必要时重置计数
+     * 检查重置条件并返回当前计数
      */
     function checkAndReset() {
         const now = new Date();
         const currentLogicStart = getLogicDayStart(now);
-        const lastReset = GM_getValue(STORAGE_KEY_LAST_RESET, 0);
+        const { countKey, resetKey } = getStorageKeys();
+
+        const lastReset = GM_getValue(resetKey, 0);
 
         if (lastReset < currentLogicStart) {
-            GM_setValue(STORAGE_KEY_COUNT, 0);
-            GM_setValue(STORAGE_KEY_LAST_RESET, now.getTime());
+            GM_setValue(countKey, 0);
+            GM_setValue(resetKey, now.getTime());
             return 0;
         }
-        return GM_getValue(STORAGE_KEY_COUNT, 0);
+        return GM_getValue(countKey, 0);
     }
 
     /**
@@ -63,7 +116,7 @@
     function incrementCount() {
         const now = Date.now();
 
-        // 防抖检查
+        // 防抖
         if (now - lastIncrementTime < COOLDOWN_MS) {
             console.log(LOG_PREFIX, 'Ignored duplicate event within cooldown.');
             return;
@@ -72,17 +125,18 @@
         let count = checkAndReset();
         count++;
 
-        GM_setValue(STORAGE_KEY_COUNT, count);
-        GM_setValue(STORAGE_KEY_LAST_RESET, now);
+        const { countKey, resetKey } = getStorageKeys();
+        GM_setValue(countKey, count);
+        GM_setValue(resetKey, now);
 
         lastIncrementTime = now;
 
-        console.log(LOG_PREFIX, `Count incremented. Current Total: ${count}`);
+        console.log(LOG_PREFIX, `Count incremented for [${currentAccountSuffix}]. Current Total: ${count}`);
         updateDisplay();
     }
 
     /**
-     * 检查当前是否处于 Thinking 模式
+     * 检查是否处于 Thinking 模式
      */
     function isThinkingMode() {
         const label = document.querySelector('bard-mode-switcher .input-area-switch-label span');
@@ -91,18 +145,15 @@
     }
 
     /**
-     * 检查是否有 @ 提及菜单或类似的浮层打开
-     * 用于防止在选择菜单项时回车误触发计数
+     * 检查是否有 @ 提及菜单打开（防止误触）
      */
     function isMentionMenuOpen() {
-        // cdk-overlay-pane 是 Angular Material 的浮层容器，at-mentions-menu-panel 是特定的类
         const menu = document.querySelector('.at-mentions-menu-panel');
-        // 确保它存在且可见
         return menu && menu.offsetParent !== null;
     }
 
     /**
-     * 检查输入框中是否有内容（文本或文件）
+     * 检查用户是否输入了内容（文本或文件）
      */
     function hasUserContent() {
         const editor = document.querySelector('.ql-editor.textarea');
@@ -128,7 +179,6 @@
 
     function handleMainEnter(event) {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-            // 如果菜单处于激活状态，则忽略回车键事件
             if (isMentionMenuOpen()) {
                 console.log(LOG_PREFIX, 'Enter ignored: Mention menu is active.');
                 return;
@@ -144,7 +194,6 @@
     function handleUpdateEnter(event) {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
             const textarea = event.target;
-            // 编辑模式下一般无需处理 @ 菜单逻辑
             if (textarea.value.trim().length > 0 && isThinkingMode()) {
                 incrementCount();
             }
@@ -189,13 +238,30 @@
     function init() {
         console.log(LOG_PREFIX, 'Script initialized.');
 
-        // Listen for storage changes from other tabs to sync counter
-        GM_addValueChangeListener(STORAGE_KEY_COUNT, (name, oldVal, newVal, remote) => {
-            if (remote) {
-                updateDisplay();
+        // 1. 确定账号 ID
+        // 由于头部可能异步加载，尝试多次
+        let retryCount = 0;
+        const accountInterval = setInterval(() => {
+            const email = getAccountIdentifier();
+            if (email) {
+                currentAccountSuffix = `_user_${email}`;
+                console.log(LOG_PREFIX, `Account identified: ${email}`);
+                clearInterval(accountInterval);
+                updateDisplay(); // 账号确认后立即更新显示
+            } else {
+                retryCount++;
+                if (retryCount > 10) {
+                    console.log(LOG_PREFIX, 'Could not identify account email. Using default storage.');
+                    clearInterval(accountInterval);
+                }
             }
-        });
+        }, 1000);
 
+        // 2. 监听存储变化（跨标签页同步）
+        // 注意：这里使用 focus 事件来简单处理多标签页同步显示的问题，避免过度依赖 GM_addValueChangeListener 监听动态键
+        window.addEventListener('focus', updateDisplay);
+
+        // 3. 设置输入框观察器
         const initialInterval = setInterval(() => {
             if (document.querySelector('.ql-editor.textarea')) {
                 updateDisplay();
@@ -203,6 +269,7 @@
             }
         }, 500);
 
+        // 4. 绑定事件
         document.addEventListener('keydown', (e) => {
             const target = e.target;
             if (target.classList.contains('ql-editor') && target.classList.contains('textarea')) {
@@ -215,16 +282,19 @@
 
         document.addEventListener('click', handleClick, true);
 
+        // 5. Mutation Observer 用于保持占位符显示
         const observer = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     const editor = document.querySelector('.ql-editor.textarea');
+                    // 仅当不匹配我们的格式时才更新
                     if (editor && !editor.getAttribute('data-placeholder').startsWith('Ask Gemini 3:')) {
                         updateDisplay();
                     }
                 }
                 if (mutation.type === 'attributes' && mutation.target.classList.contains('ql-editor')) {
                      const val = mutation.target.getAttribute('data-placeholder');
+                     // 防止死循环：如果已经包含冒号（我们的格式）则不处理
                      if (val && !val.includes(':')) {
                          updateDisplay();
                      }
