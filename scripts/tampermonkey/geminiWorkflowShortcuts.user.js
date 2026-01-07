@@ -57,15 +57,28 @@
      */
     function findAndClickNewChatButton() {
         const selectors = [
+            // 策略 1: 查找特定 test-id 容器内的链接 (针对新版 UI)
+            'side-nav-action-button[data-test-id="new-chat-button"] a',
+
+            // 策略 2: 直接点击特定 test-id 的容器
+            '[data-test-id="new-chat-button"]',
+
+            // 策略 3: 通用 aria-label 匹配 (兼容多种标签)
+            '[aria-label="New chat"]',
+            '[aria-label="新对话"]',
+
+            // 策略 4: 旧版 button 选择器
             'button[data-test-id="new-chat-button"]',
-            'button[aria-label="New chat"]',
-            'button[aria-label="新对话"]',
+
+            // 策略 5: 基于文本内容的兜底查找
             function() {
-                const buttons = document.querySelectorAll('side-nav-action-button button .gds-body-m');
-                for (let button of buttons) {
-                    const text = button.textContent ? button.textContent.trim().toLowerCase() : '';
+                // 查找 side-nav-action-button 下的文本容器
+                const elements = document.querySelectorAll('side-nav-action-button .gds-body-m, side-nav-action-button span');
+                for (let el of elements) {
+                    const text = el.textContent ? el.textContent.trim().toLowerCase() : '';
                     if (text === 'new chat' || text === '新对话') {
-                        return button.closest('button');
+                        // 返回最近的可点击父元素
+                        return el.closest('a, button, side-nav-action-button');
                     }
                 }
                 return null;
@@ -83,11 +96,12 @@
         }
 
         if (newChatButton) {
-            if (newChatButton.disabled) {
+            // 检查 disabled 属性
+            if (newChatButton.disabled || newChatButton.getAttribute('aria-disabled') === 'true') {
                 console.warn(`${LOG_PREFIX} '新对话' 按钮被禁用。`);
                 return false;
             }
-            console.log(`${LOG_PREFIX} 正在点击 '新对话' 按钮。`);
+            console.log(`${LOG_PREFIX} 正在点击 '新对话' 按钮:`, newChatButton);
             newChatButton.click();
             return true;
         } else {
