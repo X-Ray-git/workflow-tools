@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Gemini 快捷工作流 (Custom Prompt Edition)
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Gemini 快捷键增强：Ctrl+O 新对话、Ctrl+Shift+N 临时对话、Ctrl+Shift+P 论文预设Prompt对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏。
+// @version      1.5
+// @description  Gemini 快捷键增强：Ctrl+O 新对话、Ctrl+Shift+N 临时对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏，支持自定义快捷提示词。
 // @author       Script Author
 // @match        https://gemini.google.com/*
-// @grant        none
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -14,70 +16,258 @@
 
     const LOG_PREFIX = "[Gemini 快捷键]";
 
-    // 预设论文分析提示词
-    const PAPER_PROMPT = `请必须使用更简单易懂的语言来解释这篇论文，不要太长、不要包含太复杂的内容，并且使用中文。
-除了解释以外，如果原文当中有 limitation 或者 future work 的章节，你也需要把这些观点补充在你的回答当中，如果没有相关内容，则告诉我文中没有写即可。
+    // --- 存储管理 ---
+    const STORAGE_KEY = 'gemini_custom_shortcuts';
 
-你需要在回答的一开始告诉我这篇论文是否是以下类别，通过一个两列表格以及勾叉符号来表示，第一列填写下列类别名称，第二列填写✅或者❌表示论文是否是该类别：
+    function loadConfig() {
+        const config = GM_getValue(STORAGE_KEY, []);
+        console.log(`${LOG_PREFIX} 加载配置:`, config);
+        return config;
+    }
 
-是否是RL
-是否是纯文本NLP
-是否是多模态multimodal
-是否是医学相关
-是否是思维链CoT或者系统二System2
-是否是专注于缩短思维链ShortCoT
-是否是专注于隐藏层的思维链Latent/SoftCot
-是否是工具使用Toolcall/Agent（包括RAG）
-是否是专注于基于细节提示增强模型回答问题正确率的研究（hint）
-是否是专注于提高模型记忆能力的研究（Mem）
-是否是专注于并行推理或并行训练（parallel）
-是否是专注于让模型同时扮演出题和答题角色并多轮迭代共同提升（bootstrap/self-play）
-是否是专注于将使用模型来模拟环境的世界模型（Sim/World）
-是否是专注于将文字通过渲染成图片后作为视觉模态信息处理（TextAsImage）
-是否专注于将RLVR的奖励变为soft/smooth而且dense的奖励（包括过程奖励PRM）
+    function saveConfig(config) {
+        GM_setValue(STORAGE_KEY, config);
+        console.log(`${LOG_PREFIX} 保存配置:`, config);
+    }
 
-你需要告诉我，这篇论文是属于哪一类，直接告诉我类别即可（可以是组合）：
-1、Benchmark
-2、综述论文
-3、分析型论文：依靠大量实验对一个问题中的理论进行研究
-4、方法型论文：为问题提出新的解决方法。
+    // --- 样式注入 ---
+    // 自动适配深色/浅色模式 (基于 Gemini 的 body 属性或其他特征，这里采用简单的媒体查询+类名判断策略)
+    // 实际运行时，会在打开模态框时检测页面主题并添加对应类名
+    GM_addStyle(`
+        #gemini-shortcut-settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        #gemini-shortcut-settings-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #gemini-shortcut-settings-modal {
+            width: 800px;
+            max-width: 90%;
+            max-height: 85vh;
+            background: #fff;
+            border-radius: 24px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            color: #1f1f1f;
+        }
+        /* Dark Mode Styles */
+        body.dark-theme #gemini-shortcut-settings-modal {
+            background: #1e1e1e;
+            color: #e3e3e3;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+        }
 
-你需要告诉我这篇论文是否提出了自己的数据集，以及它是否训练了自己的模型，或者只是简单地使用提示工程方法，或者这两者都不是重点。
+        /* Header */
+        .settings-header {
+            padding: 24px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        body.dark-theme .settings-header {
+            border-bottom-color: #444;
+        }
+        .settings-title {
+            font-size: 22px;
+            font-weight: 500;
+            margin: 0;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: inherit;
+            padding: 0 8px;
+        }
 
-你需要告诉我这篇论文使用了多大规模的计算资源。
+        /* Content */
+        .settings-content {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .shortcut-item {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            padding: 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            background: #f8f9fa;
+            position: relative;
+        }
+        body.dark-theme .shortcut-item {
+            border-color: #444;
+            background: #2a2a2a;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+        .input-group label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #5f6368;
+        }
+        body.dark-theme .input-group label {
+            color: #aaa;
+        }
 
-如果原文中有提到，请直接告诉我论文原文中所说的设备型号、设备数量、计算时长。如果原文没有提到，告知我。
-同时，告诉我这篇论文属于以下哪种类型的计算量级别：预训练级别、继续预训练级别、SFT级别/DPO级别、RL/GRPO级别、仅推理级别，并告诉我他是否采用了参数高效的微调方法，例如 lora、低比特量化等。
+        .shortcut-input-wrapper {
+             position: relative;
+        }
 
-你需要首先将论文的标题放在一个单独的、可复制的代码块，也就是 \`\`\`text 当中，写在回答的最开头。标题需要格外注意大小写问题，部分论文使用了 \\textsc{} 格式，这会导致标题全部都是大写字母，此时，应当根据字号、语义进一步区分其中真正的大写和小写字母，并且返回的结果中包含处理好大小写后的结果。`;
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-family: inherit;
+            background: #fff;
+            color: inherit;
+            box-sizing: border-box;
+        }
+        body.dark-theme input[type="text"], body.dark-theme textarea {
+            background: #3c4043;
+            border-color: #5f6368;
+            color: #e3e3e3;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .delete-btn {
+            background: #ffdddd;
+            color: #d93025;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: 500;
+            align-self: flex-start;
+            margin-top: 24px; /* Align with inputs */
+        }
+        body.dark-theme .delete-btn {
+            background: #5c2b2b;
+            color: #ff8a80;
+        }
+
+        .conflict-warning {
+            color: #d93025;
+            font-size: 12px;
+            margin-top: 4px;
+            display: none;
+        }
+        body.dark-theme .conflict-warning {
+            color: #ff8a80;
+        }
+
+        /* Footer */
+        .settings-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background: #fff;
+        }
+        body.dark-theme .settings-footer {
+            border-top-color: #444;
+            background: #1e1e1e;
+        }
+        .btn {
+            padding: 10px 24px;
+            border-radius: 20px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+        .btn-secondary {
+            background: #f1f3f4;
+            color: #1f1f1f;
+        }
+        body.dark-theme .btn-primary {
+            background: #8ab4f8;
+            color: #202124;
+        }
+        body.dark-theme .btn-secondary {
+            background: #3c4043;
+            color: #e3e3e3;
+        }
+
+        .add-btn-wrapper {
+            display: flex;
+            justify-content: center;
+            padding-bottom: 20px;
+        }
+        .btn-add {
+            background: transparent;
+            border: 1px dashed #999;
+            color: #666;
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+        }
+        body.dark-theme .btn-add {
+            border-color: #666;
+            color: #aaa;
+        }
+    `);
+
+    // --- DOM 工具 ---
 
     /**
      * 查找并点击“新对话”按钮
-     * @returns {boolean} 操作是否成功
      */
     function findAndClickNewChatButton() {
         const selectors = [
-            // 策略 1: 查找特定 test-id 容器内的链接 (针对新版 UI)
             'side-nav-action-button[data-test-id="new-chat-button"] a',
-
-            // 策略 2: 直接点击特定 test-id 的容器
             '[data-test-id="new-chat-button"]',
-
-            // 策略 3: 通用 aria-label 匹配 (兼容多种标签)
             '[aria-label="New chat"]',
             '[aria-label="新对话"]',
-
-            // 策略 4: 旧版 button 选择器
             'button[data-test-id="new-chat-button"]',
-
-            // 策略 5: 基于文本内容的兜底查找
             function() {
-                // 查找 side-nav-action-button 下的文本容器
                 const elements = document.querySelectorAll('side-nav-action-button .gds-body-m, side-nav-action-button span');
                 for (let el of elements) {
                     const text = el.textContent ? el.textContent.trim().toLowerCase() : '';
                     if (text === 'new chat' || text === '新对话') {
-                        // 返回最近的可点击父元素
                         return el.closest('a, button, side-nav-action-button');
                     }
                 }
@@ -87,32 +277,21 @@
 
         let newChatButton = null;
         for (let selector of selectors) {
-            if (typeof selector === 'function') {
-                newChatButton = selector();
-            } else {
-                newChatButton = document.querySelector(selector);
-            }
+            newChatButton = (typeof selector === 'function') ? selector() : document.querySelector(selector);
             if (newChatButton) break;
         }
 
         if (newChatButton) {
-            // 检查 disabled 属性
             if (newChatButton.disabled || newChatButton.getAttribute('aria-disabled') === 'true') {
                 console.warn(`${LOG_PREFIX} '新对话' 按钮被禁用。`);
                 return false;
             }
-            console.log(`${LOG_PREFIX} 正在点击 '新对话' 按钮:`, newChatButton);
             newChatButton.click();
             return true;
-        } else {
-            console.error(`${LOG_PREFIX} 错误: 未能定位 '新对话' 按钮。`);
-            return false;
         }
+        return false;
     }
 
-    /**
-     * 查找并点击“临时对话”按钮
-     */
     function findAndClickTempChatButton() {
         const selectors = [
             'button[data-test-id="temp-chat-button"]',
@@ -122,159 +301,413 @@
             'button[aria-label="开始临时对话"]',
             'button.temp-chat-button.mat-unthemed'
         ];
-
-        let tempChatButton = null;
-        for (let selector of selectors) {
-            if (typeof selector === 'function') {
-                tempChatButton = selector();
-            } else {
-                tempChatButton = document.querySelector(selector);
-            }
-            if (tempChatButton) {
-                break;
-            }
+        let btn = null;
+        for (let s of selectors) {
+            btn = (typeof s === 'function') ? s() : document.querySelector(s);
+            if (btn) break;
         }
-
-        if (tempChatButton) {
-            if (tempChatButton.disabled) {
-                console.warn(`${LOG_PREFIX} '临时对话' 按钮被禁用。`);
-                return false;
-            }
-            console.log(`${LOG_PREFIX} 正在点击 '临时对话' 按钮。`);
-            tempChatButton.click();
+        if (btn && !btn.disabled) {
+            btn.click();
             return true;
-        } else {
-            console.error(`${LOG_PREFIX} 错误: 未能定位 '临时对话' 按钮。`);
-            return false;
         }
+        return false;
     }
 
-    /**
-     * 关闭侧边栏
-     */
     function closeSidebarByClick() {
         const chatApp = document.querySelector('chat-app');
         const menuButton = document.querySelector('button[data-test-id="side-nav-menu-button"]');
-
         if (chatApp && menuButton && chatApp.classList.contains('side-nav-open')) {
-            console.log(`${LOG_PREFIX} 侧边栏已打开, 正在关闭。`);
             menuButton.click();
         }
     }
 
-    /**
-     * 切换侧边栏状态
-     */
     function toggleSidebar() {
         const menuButton = document.querySelector('button[data-test-id="side-nav-menu-button"]');
-        if (menuButton) {
-            menuButton.click();
-        }
+        if (menuButton) menuButton.click();
     }
 
-    /**
-     * 聚焦主输入框
-     * @returns {HTMLElement|null} 返回输入框元素
-     */
     function getInputField() {
         const inputSelector = 'div.ql-editor[aria-label="Enter a prompt here"], div.ql-editor[aria-label="在此处输入提示"], div[role="textbox"][contenteditable="true"]';
         return document.querySelector(inputSelector);
     }
 
-    /**
-     * 聚焦输入框
-     */
     function focusOnInputField() {
         const inputField = getInputField();
-        if (inputField) {
-            console.log(`${LOG_PREFIX} 正在聚焦输入框。`);
-            inputField.focus();
-        }
+        if (inputField) inputField.focus();
     }
 
-    /**
-     * 将文本插入输入框
-     * Gemini 使用 contenteditable div，需通过 execCommand 或 DOM 事件模拟输入
-     */
     function insertTextToInput(text) {
         const inputField = getInputField();
-        if (!inputField) {
-            console.error(`${LOG_PREFIX} 无法找到输入框，无法粘贴文本。`);
-            return;
-        }
+        if (!inputField) return;
 
         inputField.focus();
-
-        // 稍微延迟以确保焦点状态
         setTimeout(() => {
-            // 尝试使用 execCommand (兼容性最好)
             const success = document.execCommand('insertText', false, text);
-
-            // 如果 execCommand 失败，强制修改 DOM 并触发 input 事件
             if (!success || inputField.textContent.trim() === '') {
-                 console.log(`${LOG_PREFIX} execCommand 未生效，尝试 DOM 注入...`);
                  inputField.innerText = text;
                  inputField.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            console.log(`${LOG_PREFIX} 文本已填充。`);
         }, 50);
     }
 
-    /**
-     * 执行依赖侧边栏的工作流
-     */
     function executeSidebarWorkflow(clickActionFunc, actionName) {
         const chatApp = document.querySelector('chat-app');
         let sidebarWasClosed = false;
 
-        // 若侧边栏未打开，先打开以加载列表
         if (chatApp && !chatApp.classList.contains('side-nav-open')) {
-            console.log(`${LOG_PREFIX} 侧边栏已关闭，正在打开以查找 '${actionName}' 按钮。`);
             toggleSidebar();
             sidebarWasClosed = true;
         }
 
         const clickWorkflow = () => {
-            const success = clickActionFunc();
-
-            if (success) {
-                console.log(`${LOG_PREFIX} '${actionName}' 按钮点击成功。`);
+            if (clickActionFunc()) {
                 setTimeout(closeSidebarByClick, 100);
                 setTimeout(focusOnInputField, 200);
             } else {
-                console.error(`${LOG_PREFIX} '${actionName}' 工作流失败 (未找到按钮)。`);
-                if (sidebarWasClosed) {
-                    toggleSidebar();
-                }
+                if (sidebarWasClosed) toggleSidebar();
             }
         };
-
         setTimeout(clickWorkflow, sidebarWasClosed ? 350 : 50);
     }
 
-    /**
-     * 执行 Paper 工作流：新对话 -> 填充 Prompt
-     */
-    function executePaperWorkflow() {
-        console.log(`${LOG_PREFIX} 执行 'Paper' 工作流 (新对话 + 预设 Prompt)。`);
-
-        // 1. 点击新对话
-        const success = findAndClickNewChatButton();
-
-        if (success) {
-            // 2. 关闭侧边栏 (如果它是开着的)
-            closeSidebarByClick();
-
-            // 3. 等待 UI 刷新后填入文本
-            setTimeout(() => {
-                insertTextToInput(PAPER_PROMPT);
-            }, 600);
+    function executeCustomWorkflow(prompt, newChat) {
+        console.log(`${LOG_PREFIX} 执行自定义 Prompt, 新对话: ${newChat}`);
+        if (newChat) {
+            const success = findAndClickNewChatButton();
+            if (success) {
+                closeSidebarByClick();
+                setTimeout(() => insertTextToInput(prompt), 600);
+            }
+        } else {
+            focusOnInputField();
+            insertTextToInput(prompt);
         }
     }
 
-    // --- 事件监听 ---
+
+    // --- 设置页面 UI ---
+
+    function createSettingsUI() {
+        if (document.getElementById('gemini-shortcut-settings-overlay')) return;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'gemini-shortcut-settings-overlay';
+
+        overlay.innerHTML = `
+            <div id="gemini-shortcut-settings-modal">
+                <div class="settings-header">
+                    <h2 class="settings-title">自定义快捷键设置</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="settings-content" id="settings-list">
+                    <!-- Items will be injected here -->
+                </div>
+                <div class="add-btn-wrapper">
+                     <button class="btn btn-add" id="add-shortcut-btn">+ 添加新快捷键</button>
+                </div>
+                <div class="settings-footer">
+                    <button class="btn btn-secondary" id="cancel-settings-btn">取消</button>
+                    <button class="btn btn-primary" id="save-settings-btn">保存</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        // Bind Events
+        overlay.querySelector('.close-btn').onclick = closeSettings;
+        overlay.querySelector('#cancel-settings-btn').onclick = closeSettings;
+        overlay.querySelector('#save-settings-btn').onclick = saveAndCloseSettings;
+        overlay.querySelector('#add-shortcut-btn').onclick = () => addShortcutItemUI(); // Add empty item
+    }
+
+    function openSettings() {
+        createSettingsUI(); // Ensure it exists
+        const overlay = document.getElementById('gemini-shortcut-settings-overlay');
+        const list = document.getElementById('settings-list');
+        list.innerHTML = ''; // Clear current list
+
+        // Check theme
+        const isDark = document.body.classList.contains('dark-theme') ||
+                       document.body.getAttribute('data-theme') === 'dark' ||
+                       getComputedStyle(document.body).backgroundColor === 'rgb(30, 31, 32)' || // Gemini dark bg
+                       window.matchMedia('(prefers-color-scheme: dark)').matches; // System preference fallback
+
+        if (isDark) {
+            document.body.classList.add('dark-theme'); // Helper class for our CSS
+        } else {
+            document.body.classList.remove('dark-theme');
+        }
+
+        const config = loadConfig();
+        config.forEach(item => addShortcutItemUI(item));
+        if (config.length === 0) {
+            // Optional: Add one empty item if empty? Or just leave button.
+        }
+
+        overlay.classList.add('visible');
+    }
+
+    function closeSettings() {
+        const overlay = document.getElementById('gemini-shortcut-settings-overlay');
+        if (overlay) {
+            overlay.classList.remove('visible');
+            setTimeout(() => {
+                if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            }, 200);
+        }
+    }
+
+    function saveAndCloseSettings() {
+        const list = document.getElementById('settings-list');
+        const items = list.querySelectorAll('.shortcut-item');
+        const newConfig = [];
+
+        items.forEach(item => {
+            const keyInput = item.querySelector('.shortcut-key-input');
+            const promptInput = item.querySelector('.shortcut-prompt-input');
+            const newChatInput = item.querySelector('.shortcut-newchat-input');
+
+            // Extract stored key data
+            const keyData = JSON.parse(keyInput.dataset.key || 'null');
+            const prompt = promptInput.value;
+            const newChat = newChatInput.checked;
+
+            if (keyData && prompt) {
+                newConfig.push({
+                    key: keyData.key,
+                    code: keyData.code,
+                    ctrlKey: keyData.ctrlKey,
+                    shiftKey: keyData.shiftKey,
+                    altKey: keyData.altKey,
+                    metaKey: keyData.metaKey,
+                    prompt: prompt,
+                    newChat: newChat
+                });
+            }
+        });
+
+        saveConfig(newConfig);
+        closeSettings();
+    }
+
+    function formatShortcutString(e) {
+        const keys = [];
+        if (e.ctrlKey) keys.push('Ctrl');
+        if (e.metaKey) keys.push('Cmd');
+        if (e.altKey) keys.push('Alt');
+        if (e.shiftKey) keys.push('Shift');
+
+        // Don't show modifier keys alone
+        if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) {
+             return keys.join(' + ');
+        }
+
+        keys.push(e.key.toUpperCase());
+        return keys.join(' + ');
+    }
+
+    function isSystemConflict(e) {
+        // Simple heuristic for common conflicts
+        // e.g. Ctrl+C, Ctrl+V, Cmd+W, Cmd+Q
+        const key = e.key.toLowerCase();
+        const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+
+        if (isCtrlOrCmd) {
+             if (['c', 'v', 'x', 'a', 'z', 'w', 'q', 't', 'r'].includes(key)) return true;
+        }
+        return false;
+    }
+
+    function addShortcutItemUI(data = null) {
+        const list = document.getElementById('settings-list');
+        const item = document.createElement('div');
+        item.className = 'shortcut-item';
+
+        const keyDisplay = data ? formatShortcutString({
+            key: data.key,
+            ctrlKey: data.ctrlKey,
+            metaKey: data.metaKey,
+            altKey: data.altKey,
+            shiftKey: data.shiftKey
+        }) : '';
+
+        // --- Create Elements Safely (Avoid HTML Injection) ---
+
+        // 1. Shortcut Input Group
+        const inputGroupKey = document.createElement('div');
+        inputGroupKey.className = 'input-group';
+        inputGroupKey.style.flex = '0 0 200px';
+
+        const labelKey = document.createElement('label');
+        labelKey.textContent = '快捷键 (点击录入)';
+
+        const wrapperKey = document.createElement('div');
+        wrapperKey.className = 'shortcut-input-wrapper';
+
+        const keyInput = document.createElement('input');
+        keyInput.type = 'text';
+        keyInput.className = 'shortcut-key-input';
+        keyInput.value = keyDisplay;
+        keyInput.placeholder = '点击并按下按键...';
+        keyInput.readOnly = true;
+        if (data) {
+            keyInput.dataset.key = JSON.stringify(data);
+        }
+
+        const warning = document.createElement('div');
+        warning.className = 'conflict-warning';
+        warning.textContent = '⚠️ 可能与系统快捷键冲突';
+
+        wrapperKey.appendChild(keyInput);
+        wrapperKey.appendChild(warning);
+
+        // New Chat Checkbox
+        const labelCheckbox = document.createElement('label');
+        labelCheckbox.className = 'checkbox-wrapper';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'shortcut-newchat-input';
+        if (data && data.newChat) checkbox.checked = true;
+
+        const spanCheckbox = document.createElement('span');
+        spanCheckbox.textContent = '填充前新建对话';
+
+        labelCheckbox.appendChild(checkbox);
+        labelCheckbox.appendChild(spanCheckbox);
+
+        inputGroupKey.appendChild(labelKey);
+        inputGroupKey.appendChild(wrapperKey);
+        inputGroupKey.appendChild(labelCheckbox);
+
+
+        // 2. Prompt Input Group
+        const inputGroupPrompt = document.createElement('div');
+        inputGroupPrompt.className = 'input-group';
+
+        const labelPrompt = document.createElement('label');
+        labelPrompt.textContent = '提示词 (Prompt)';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'shortcut-prompt-input';
+        textarea.placeholder = '输入提示词...';
+        if (data && data.prompt) {
+            textarea.value = data.prompt; // Safe assignment
+        }
+
+        inputGroupPrompt.appendChild(labelPrompt);
+        inputGroupPrompt.appendChild(textarea);
+
+
+        // 3. Delete Button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '删除';
+
+
+        // Append all to item
+        item.appendChild(inputGroupKey);
+        item.appendChild(inputGroupPrompt);
+        item.appendChild(deleteBtn);
+
+        // Handle Shortcut Recording
+        keyInput.addEventListener('focus', () => {
+            keyInput.classList.add('recording');
+            keyInput.value = '请按键...';
+        });
+
+        keyInput.addEventListener('blur', () => {
+             keyInput.classList.remove('recording');
+             if (!keyInput.dataset.key) keyInput.value = '';
+             else {
+                 // Restore display
+                 const d = JSON.parse(keyInput.dataset.key);
+                 keyInput.value = formatShortcutString(d);
+             }
+        });
+
+        keyInput.addEventListener('keydown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Ignore standalone modifiers
+            if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
+
+            const shortcutData = {
+                key: e.key,
+                code: e.code,
+                ctrlKey: e.ctrlKey,
+                shiftKey: e.shiftKey,
+                altKey: e.altKey,
+                metaKey: e.metaKey
+            };
+
+            keyInput.dataset.key = JSON.stringify(shortcutData);
+            keyInput.value = formatShortcutString(e);
+
+            // Conflict check
+            if (isSystemConflict(e)) {
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
+
+            keyInput.blur();
+        });
+
+        // Handle Delete
+        item.querySelector('.delete-btn').onclick = () => {
+            item.remove();
+        };
+
+        list.appendChild(item);
+    }
+
+
+    // --- 主逻辑 ---
+
     document.addEventListener('keydown', function(event) {
         const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+
+        // 1. Check for Settings Shortcut: Command/Ctrl + Shift + ,
+        if (isCtrlOrMeta && event.shiftKey && event.key === ',') {
+            event.preventDefault();
+            event.stopPropagation();
+            openSettings();
+            return;
+        }
+
+        // 2. Check Custom Shortcuts
+        const config = loadConfig();
+        for (const item of config) {
+            // Match Modifiers
+            const matchCtrl = !!item.ctrlKey === event.ctrlKey;
+            const matchMeta = !!item.metaKey === event.metaKey;
+            const matchShift = !!item.shiftKey === event.shiftKey;
+            const matchAlt = !!item.altKey === event.altKey;
+
+            // Match Key (using code for layout independence or key for char match)
+            // Using `code` is safer for position, `key` is safer for character.
+            // Config saves both. Let's strictly compare `code` if available (from new config),
+            // fallback to `key` (normalized).
+
+            let matchKey = false;
+            if (item.code && event.code) {
+                 matchKey = item.code === event.code;
+            } else {
+                 matchKey = item.key.toLowerCase() === event.key.toLowerCase();
+            }
+
+            if (matchCtrl && matchMeta && matchShift && matchAlt && matchKey) {
+                event.preventDefault();
+                event.stopPropagation();
+                executeCustomWorkflow(item.prompt, item.newChat);
+                return;
+            }
+        }
+
+        // 3. Existing Hardcoded Shortcuts (Preserved Utilities)
 
         // Ctrl+O / Cmd+O: 新对话
         if (isCtrlOrMeta && !event.shiftKey && event.code === 'KeyO') {
@@ -304,13 +737,7 @@
             event.stopPropagation();
             executeSidebarWorkflow(findAndClickTempChatButton, '临时对话');
         }
-        // Ctrl+Shift+P / Cmd+Shift+P: Paper 对话
-        else if (isCtrlOrMeta && event.shiftKey && event.code === 'KeyP') {
-            event.preventDefault();
-            event.stopPropagation();
-            executePaperWorkflow();
-        }
     });
 
-    console.log(`${LOG_PREFIX} 脚本已加载。`);
+    console.log(`${LOG_PREFIX} 脚本已加载 (v1.5)。按 Cmd/Ctrl+Shift+, 打开设置。`);
 })();
