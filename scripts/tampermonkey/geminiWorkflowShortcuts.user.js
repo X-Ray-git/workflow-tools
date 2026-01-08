@@ -103,34 +103,58 @@
             padding: 24px;
             overflow-y: auto;
             flex: 1;
+            background: #f5f5f5; /* Light background for contrast */
         }
+        body.dark-theme .settings-content {
+            background: #1e1e1e; /* Dark background matches modal */
+        }
+
         .shortcut-item {
-            display: flex;
-            gap: 16px;
-            align-items: flex-start;
-            margin-bottom: 24px;
-            padding: 16px;
-            border: 1px solid #e0e0e0;
+            display: grid;
+            grid-template-columns: 180px 1fr 60px; /* Fixed - Flexible - Fixed */
+            gap: 24px;
+            align-items: start;
+            margin-bottom: 16px;
+            padding: 24px;
             border-radius: 12px;
-            background: #f8f9fa;
-            position: relative;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         body.dark-theme .shortcut-item {
-            border-color: #444;
-            background: #2a2a2a;
+            background: #2d2d2d;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
-        .input-group {
+
+        /* Left Column: Shortcut & Switch */
+        .left-col {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Middle Column: Prompt */
+        .mid-col {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            flex: 1;
+            height: 100%;
         }
-        .input-group label {
-            font-size: 12px;
+
+        /* Right Column: Delete */
+        .right-col {
+            display: flex;
+            justify-content: flex-end;
+            padding-top: 28px; /* Align with input */
+        }
+
+        .input-label {
+            font-size: 13px;
             font-weight: 500;
             color: #5f6368;
+            margin-bottom: 6px;
+            display: block;
         }
-        body.dark-theme .input-group label {
+        body.dark-theme .input-label {
             color: #aaa;
         }
 
@@ -140,46 +164,113 @@
 
         input[type="text"], textarea {
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
+            padding: 12px;
+            border: 1px solid #dadce0;
             border-radius: 8px;
             font-family: inherit;
+            font-size: 14px;
             background: #fff;
             color: inherit;
             box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus, textarea:focus {
+            border-color: #1a73e8;
+            outline: none;
         }
         body.dark-theme input[type="text"], body.dark-theme textarea {
             background: #3c4043;
             border-color: #5f6368;
             color: #e3e3e3;
         }
+        body.dark-theme input[type="text"]:focus, body.dark-theme textarea:focus {
+            border-color: #8ab4f8;
+        }
+
         textarea {
             resize: vertical;
             min-height: 80px;
+            height: 100%;
         }
 
-        .checkbox-wrapper {
+        /* Toggle Switch Style for New Chat */
+        .switch-wrapper {
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin-top: 8px;
-            font-size: 14px;
+            gap: 12px;
             cursor: pointer;
             user-select: none;
         }
+        .switch-label {
+            font-size: 13px;
+            color: #5f6368;
+        }
+        body.dark-theme .switch-label {
+            color: #aaa;
+        }
+
+        /* The Switch */
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: #dadce0;
+            border-radius: 20px;
+            transition: background 0.2s;
+        }
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            transition: transform 0.2s;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+
+        input[type="checkbox"] {
+            display: none;
+        }
+        input[type="checkbox"]:checked + .toggle-switch {
+            background: #1a73e8;
+        }
+        input[type="checkbox"]:checked + .toggle-switch::after {
+            transform: translateX(16px);
+        }
+        body.dark-theme .toggle-switch {
+            background: #5f6368;
+        }
+        body.dark-theme input[type="checkbox"]:checked + .toggle-switch {
+            background: #8ab4f8;
+        }
 
         .delete-btn {
-            background: #ffdddd;
-            color: #d93025;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 12px;
+            background: transparent;
+            color: #5f6368;
+            border: 1px solid transparent;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            padding: 0;
             cursor: pointer;
-            font-weight: 500;
-            align-self: flex-start;
-            margin-top: 24px; /* Align with inputs */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            line-height: 1;
+            transition: background 0.2s, color 0.2s;
+        }
+        .delete-btn:hover {
+            background: #fee2e2;
+            color: #d93025;
         }
         body.dark-theme .delete-btn {
+            color: #aaa;
+        }
+        body.dark-theme .delete-btn:hover {
             background: #5c2b2b;
             color: #ff8a80;
         }
@@ -574,13 +665,14 @@
 
         // --- Create Elements Safely (Avoid HTML Injection) ---
 
-        // 1. Shortcut Input Group
-        const inputGroupKey = document.createElement('div');
-        inputGroupKey.className = 'input-group';
-        inputGroupKey.style.flex = '0 0 200px';
+        // 1. LEFT COLUMN: Shortcut & Switch
+        const colLeft = document.createElement('div');
+        colLeft.className = 'left-col';
 
-        const labelKey = document.createElement('label');
-        labelKey.textContent = '快捷键 (点击录入)';
+        // Shortcut Input
+        const labelKey = document.createElement('span');
+        labelKey.className = 'input-label';
+        labelKey.textContent = '快捷键';
 
         const wrapperKey = document.createElement('div');
         wrapperKey.className = 'shortcut-input-wrapper';
@@ -589,7 +681,7 @@
         keyInput.type = 'text';
         keyInput.className = 'shortcut-key-input';
         keyInput.value = keyDisplay;
-        keyInput.placeholder = '点击并按下按键...';
+        keyInput.placeholder = '点击录入...';
         keyInput.readOnly = true;
         if (data) {
             keyInput.dataset.key = JSON.stringify(data);
@@ -597,59 +689,72 @@
 
         const warning = document.createElement('div');
         warning.className = 'conflict-warning';
-        warning.textContent = '⚠️ 可能与系统快捷键冲突';
+        warning.textContent = '⚠️ 冲突';
 
         wrapperKey.appendChild(keyInput);
         wrapperKey.appendChild(warning);
 
-        // New Chat Checkbox
+        // New Chat Toggle Switch
         const labelCheckbox = document.createElement('label');
-        labelCheckbox.className = 'checkbox-wrapper';
+        labelCheckbox.className = 'switch-wrapper';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'shortcut-newchat-input';
         if (data && data.newChat) checkbox.checked = true;
 
+        const toggleSwitch = document.createElement('div');
+        toggleSwitch.className = 'toggle-switch';
+
         const spanCheckbox = document.createElement('span');
-        spanCheckbox.textContent = '填充前新建对话';
+        spanCheckbox.className = 'switch-label';
+        spanCheckbox.textContent = '新建对话';
 
         labelCheckbox.appendChild(checkbox);
+        labelCheckbox.appendChild(toggleSwitch);
         labelCheckbox.appendChild(spanCheckbox);
 
-        inputGroupKey.appendChild(labelKey);
-        inputGroupKey.appendChild(wrapperKey);
-        inputGroupKey.appendChild(labelCheckbox);
+        colLeft.appendChild(labelKey);
+        colLeft.appendChild(wrapperKey);
+        colLeft.appendChild(labelCheckbox);
 
 
-        // 2. Prompt Input Group
-        const inputGroupPrompt = document.createElement('div');
-        inputGroupPrompt.className = 'input-group';
+        // 2. MIDDLE COLUMN: Prompt
+        const colMid = document.createElement('div');
+        colMid.className = 'mid-col';
 
-        const labelPrompt = document.createElement('label');
+        const labelPrompt = document.createElement('span');
+        labelPrompt.className = 'input-label';
         labelPrompt.textContent = '提示词 (Prompt)';
 
         const textarea = document.createElement('textarea');
         textarea.className = 'shortcut-prompt-input';
-        textarea.placeholder = '输入提示词...';
+        textarea.placeholder = '输入自动填充的提示词...';
         if (data && data.prompt) {
             textarea.value = data.prompt; // Safe assignment
         }
 
-        inputGroupPrompt.appendChild(labelPrompt);
-        inputGroupPrompt.appendChild(textarea);
+        colMid.appendChild(labelPrompt);
+        colMid.appendChild(textarea);
 
 
-        // 3. Delete Button
+        // 3. RIGHT COLUMN: Delete Button
+        const colRight = document.createElement('div');
+        colRight.className = 'right-col';
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = '删除';
+        deleteBtn.title = '删除此快捷键';
+        // Using strict DOM methods for icon
+        deleteBtn.textContent = '×'; // Simple text X is safest and clean
+
+        colRight.appendChild(deleteBtn);
 
 
-        // Append all to item
-        item.appendChild(inputGroupKey);
-        item.appendChild(inputGroupPrompt);
-        item.appendChild(deleteBtn);
+        // Append all columns
+        item.appendChild(colLeft);
+        item.appendChild(colMid);
+        item.appendChild(colRight);
 
         // Handle Shortcut Recording
         keyInput.addEventListener('focus', () => {
