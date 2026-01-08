@@ -390,42 +390,82 @@
     function createSettingsUI() {
         if (document.getElementById('gemini-shortcut-settings-overlay')) return;
 
+        // 1. Overlay
         const overlay = document.createElement('div');
         overlay.id = 'gemini-shortcut-settings-overlay';
 
-        overlay.innerHTML = `
-            <div id="gemini-shortcut-settings-modal">
-                <div class="settings-header">
-                    <h2 class="settings-title">自定义快捷键设置</h2>
-                    <button class="close-btn">&times;</button>
-                </div>
-                <div class="settings-content" id="settings-list">
-                    <!-- Items will be injected here -->
-                </div>
-                <div class="add-btn-wrapper">
-                     <button class="btn btn-add" id="add-shortcut-btn">+ 添加新快捷键</button>
-                </div>
-                <div class="settings-footer">
-                    <button class="btn btn-secondary" id="cancel-settings-btn">取消</button>
-                    <button class="btn btn-primary" id="save-settings-btn">保存</button>
-                </div>
-            </div>
-        `;
+        // 2. Modal Container
+        const modal = document.createElement('div');
+        modal.id = 'gemini-shortcut-settings-modal';
 
+        // --- Header ---
+        const header = document.createElement('div');
+        header.className = 'settings-header';
+
+        const title = document.createElement('h2');
+        title.className = 'settings-title';
+        title.textContent = '自定义快捷键设置';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'close-btn';
+        closeBtn.textContent = '×';
+        closeBtn.onclick = closeSettings;
+
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+
+        // --- Content ---
+        const content = document.createElement('div');
+        content.className = 'settings-content';
+        content.id = 'settings-list';
+
+        // --- Add Button Wrapper ---
+        const addBtnWrapper = document.createElement('div');
+        addBtnWrapper.className = 'add-btn-wrapper';
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-add';
+        addBtn.id = 'add-shortcut-btn';
+        addBtn.textContent = '+ 添加新快捷键';
+        addBtn.onclick = () => addShortcutItemUI();
+
+        addBtnWrapper.appendChild(addBtn);
+
+        // --- Footer ---
+        const footer = document.createElement('div');
+        footer.className = 'settings-footer';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.id = 'cancel-settings-btn';
+        cancelBtn.textContent = '取消';
+        cancelBtn.onclick = closeSettings;
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-primary';
+        saveBtn.id = 'save-settings-btn';
+        saveBtn.textContent = '保存';
+        saveBtn.onclick = saveAndCloseSettings;
+
+        footer.appendChild(cancelBtn);
+        footer.appendChild(saveBtn);
+
+        // Assemble Modal
+        modal.appendChild(header);
+        modal.appendChild(content);
+        modal.appendChild(addBtnWrapper);
+        modal.appendChild(footer);
+
+        // Assemble Overlay
+        overlay.appendChild(modal);
         document.body.appendChild(overlay);
-
-        // Bind Events
-        overlay.querySelector('.close-btn').onclick = closeSettings;
-        overlay.querySelector('#cancel-settings-btn').onclick = closeSettings;
-        overlay.querySelector('#save-settings-btn').onclick = saveAndCloseSettings;
-        overlay.querySelector('#add-shortcut-btn').onclick = () => addShortcutItemUI(); // Add empty item
     }
 
     function openSettings() {
         createSettingsUI(); // Ensure it exists
         const overlay = document.getElementById('gemini-shortcut-settings-overlay');
         const list = document.getElementById('settings-list');
-        list.innerHTML = ''; // Clear current list
+        list.textContent = ''; // Clear current list
 
         // Check theme
         const isDark = document.body.classList.contains('dark-theme') ||
