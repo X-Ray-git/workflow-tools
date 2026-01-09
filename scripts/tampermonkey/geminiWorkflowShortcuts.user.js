@@ -326,7 +326,7 @@
         .add-btn-wrapper {
             display: flex;
             justify-content: center;
-            padding-bottom: 20px;
+            padding: 0 24px 20px 24px;
         }
         .btn-add {
             background: transparent;
