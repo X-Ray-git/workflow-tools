@@ -475,6 +475,53 @@
         }
     }
 
+    /**
+     * 尝试切换到 Pro 模型
+     * 逻辑：找到顶部切换器 -> 点击打开菜单 -> 延时 -> 点击 Pro 选项
+     */
+    function switchModelToPro() {
+        // 1. 寻找打开模型菜单的触发按钮
+        // 通常位于页面左上角或顶部，类名常包含 mode-switcher
+        const triggerSelectors = [
+            'bard-mode-switcher button',           // 常见结构
+            'button[data-test-id="bard-mode-menu-trigger"]', // 测试 ID
+            'button[aria-haspopup="menu"][aria-label*="Gemini"]' // 根据语义
+        ];
+
+        let triggerBtn = null;
+        for (let sel of triggerSelectors) {
+            triggerBtn = document.querySelector(sel);
+            if (triggerBtn) break;
+        }
+
+        if (triggerBtn) {
+            // 检查当前是否已经是 Pro (可选优化: 如果按钮文本包含 Pro 则跳过，视具体 UI 而定)
+            // 这里直接执行切换逻辑以确保万无一失
+            triggerBtn.click();
+
+            // 2. 等待菜单弹出 (Material 动画延迟)
+            setTimeout(() => {
+                // 使用你提供的 HTML 中的选择器
+                const proBtn = document.querySelector('button[data-test-id="bard-mode-option-pro"]');
+                if (proBtn) {
+                    // 检查是否已经选中
+                    if (proBtn.getAttribute('aria-checked') !== 'true') {
+                        proBtn.click();
+                        console.log(`${LOG_PREFIX} 已自动切换至 Pro 模型`);
+                    } else {
+                        // 已经是 Pro，点击背景或再次点击触发器关闭菜单
+                        document.body.click();
+                        console.log(`${LOG_PREFIX} 当前已是 Pro 模型`);
+                    }
+                } else {
+                    // 没找到 Pro 按钮（可能是菜单没打开），尝试关闭以防遮挡
+                    document.body.click();
+                }
+            }, 300); // 300ms 给予菜单渲染时间
+        } else {
+            console.warn(`${LOG_PREFIX} 未找到模型切换按钮`);
+        }
+    }
 
     // --- 设置页面 UI ---
 
@@ -855,13 +902,24 @@
         // 3. Existing Hardcoded Shortcuts (Preserved Utilities)
 
         // Ctrl+O / Cmd+O: 新对话
+// Ctrl+O / Cmd+O: 新对话
         if (isCtrlOrMeta && !event.shiftKey && event.code === 'KeyO') {
             console.log(`${LOG_PREFIX} 执行 '新对话' 工作流。`);
             event.preventDefault();
             event.stopPropagation();
-            findAndClickNewChatButton();
-            closeSidebarByClick();
-            setTimeout(focusOnInputField, 100);
+
+            const success = findAndClickNewChatButton();
+
+            if (success) {
+                closeSidebarByClick();
+                // 延迟执行：等待新对话页面加载完成 -> 切换模型 -> 聚焦输入框
+                // 这里的 500ms 取决于你的网络和页面渲染速度，可适当调整
+                setTimeout(() => {
+                    switchModelToPro();
+                    // 再次聚焦，防止点击菜单后焦点丢失
+                    setTimeout(focusOnInputField, 200);
+                }, 300);
+            }
         }
         // Ctrl+I / Cmd+I: 聚焦输入框
         else if (isCtrlOrMeta && !event.shiftKey && event.code === 'KeyI') {
