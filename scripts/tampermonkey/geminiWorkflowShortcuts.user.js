@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini 快捷工作流 (Custom Prompt Edition)
 // @namespace    http://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Gemini 快捷键增强：Ctrl+O 新对话、Ctrl+Shift+N 临时对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏，支持自定义快捷提示词。
 // @author       Script Author
 // @match        https://gemini.google.com/*
@@ -348,18 +348,23 @@
      * 查找并点击“新对话”按钮
      */
     function findAndClickNewChatButton() {
+        // 优先点击 <a> 链接直接导航，避免 sidebar 展开/关闭动画干扰
         const selectors = [
+            '[data-test-id="new-chat-button"] a[aria-label="New chat"]',
+            '[data-test-id="new-chat-button"] a[href="/app"]',
             'side-nav-action-button[data-test-id="new-chat-button"] a',
-            '[data-test-id="new-chat-button"]',
             '[aria-label="New chat"]',
             '[aria-label="新对话"]',
+            '[data-test-id="new-chat-button"]',
             'button[data-test-id="new-chat-button"]',
             function() {
-                const elements = document.querySelectorAll('side-nav-action-button .gds-body-m, side-nav-action-button span');
+                // 文本匹配回退
+                const elements = document.querySelectorAll('gem-nav-list-item .title-text, side-nav-action-button .gds-body-m, side-nav-action-button span');
                 for (let el of elements) {
                     const text = el.textContent ? el.textContent.trim().toLowerCase() : '';
                     if (text === 'new chat' || text === '新对话') {
-                        return el.closest('a, button, side-nav-action-button');
+                        // 优先找包裹的 <a>，否则返回父级可点击元素
+                        return el.closest('a') || el.closest('a, button, gem-nav-list-item, side-nav-action-button');
                     }
                 }
                 return null;
@@ -385,6 +390,7 @@
 
     function findAndClickTempChatButton() {
         const selectors = [
+            'button[aria-label="Temporary chat"]',
             'button[data-test-id="temp-chat-button"]',
             'button[aria-label="New temporary chat"]',
             'button[aria-label="Start temporary chat"]',
@@ -404,21 +410,45 @@
         return false;
     }
 
-    function closeSidebarByClick() {
+    /**
+     * 检测侧边栏是否打开 (兼容桌面端 bard-sidenav 和移动端 chat-app)
+     */
+    function isSidebarOpen() {
+        const sideNav = document.querySelector('bard-sidenav');
+        if (sideNav && !sideNav.classList.contains('collapsed')) return true;
         const chatApp = document.querySelector('chat-app');
-        const menuButton = document.querySelector('button[data-test-id="side-nav-menu-button"]');
-        if (chatApp && menuButton && chatApp.classList.contains('side-nav-open')) {
-            menuButton.click();
+        if (chatApp && chatApp.classList.contains('side-nav-open')) return true;
+        return false;
+    }
+
+    /**
+     * 获取侧边栏开关按钮
+     * 关闭态: button[aria-label="Open sidebar"] (sparkle)
+     * 展开态: button[aria-label="Close sidebar"].close-sidenav-button (专用关闭按钮)
+     */
+    function getSidebarToggleButton() {
+        // 展开态：专用关闭按钮
+        const closeBtn = document.querySelector('button[aria-label="Close sidebar"].close-sidenav-button');
+        if (closeBtn) return closeBtn;
+        // 关闭态：sparkle 按钮 (新版 + 旧版回退)
+        return document.querySelector('button[data-test-id="side-nav-sparkle-button"][aria-label="Open sidebar"]')
+            || document.querySelector('button[data-test-id="side-nav-menu-button"]');
+    }
+
+    function closeSidebarByClick() {
+        if (isSidebarOpen()) {
+            const btn = getSidebarToggleButton();
+            if (btn) btn.click();
         }
     }
 
     function toggleSidebar() {
-        const menuButton = document.querySelector('button[data-test-id="side-nav-menu-button"]');
-        if (menuButton) menuButton.click();
+        const btn = getSidebarToggleButton();
+        if (btn) btn.click();
     }
 
     function getInputField() {
-        const inputSelector = 'div.ql-editor[aria-label="Enter a prompt here"], div.ql-editor[aria-label="在此处输入提示"], div[role="textbox"][contenteditable="true"]';
+        const inputSelector = 'div.ql-editor[aria-label="Enter a prompt for Gemini"], div.ql-editor[aria-label="Enter a prompt here"], div.ql-editor[aria-label="在此处输入提示"], div[role="textbox"][contenteditable="true"]';
         return document.querySelector(inputSelector);
     }
 
@@ -442,10 +472,9 @@
     }
 
     function executeSidebarWorkflow(clickActionFunc, actionName) {
-        const chatApp = document.querySelector('chat-app');
         let sidebarWasClosed = false;
 
-        if (chatApp && !chatApp.classList.contains('side-nav-open')) {
+        if (!isSidebarOpen()) {
             toggleSidebar();
             sidebarWasClosed = true;
         }
@@ -481,11 +510,11 @@
      */
     function switchModelToPro() {
         // 1. 寻找打开模型菜单的触发按钮
-        // 通常位于页面左上角或顶部，类名常包含 mode-switcher
         const triggerSelectors = [
-            'bard-mode-switcher button',           // 常见结构
-            'button[data-test-id="bard-mode-menu-trigger"]', // 测试 ID
-            'button[aria-haspopup="menu"][aria-label*="Gemini"]' // 根据语义
+            'button[data-test-id="bard-mode-menu-button"]',           // 新版 test-id
+            'button[data-test-id="bard-mode-menu-trigger"]',          // 旧版 test-id (回退)
+            'bard-mode-switcher button',                               // 组件选择器
+            'button[aria-haspopup="menu"][aria-label*="mode"]'        // 语义回退
         ];
 
         let triggerBtn = null;
@@ -494,33 +523,57 @@
             if (triggerBtn) break;
         }
 
-        if (triggerBtn) {
-            // 检查当前是否已经是 Pro (可选优化: 如果按钮文本包含 Pro 则跳过，视具体 UI 而定)
-            // 这里直接执行切换逻辑以确保万无一失
-            triggerBtn.click();
-
-            // 2. 等待菜单弹出 (Material 动画延迟)
-            setTimeout(() => {
-                // 使用你提供的 HTML 中的选择器
-                const proBtn = document.querySelector('button[data-test-id="bard-mode-option-pro"]');
-                if (proBtn) {
-                    // 检查是否已经选中
-                    if (proBtn.getAttribute('aria-checked') !== 'true') {
-                        proBtn.click();
-                        console.log(`${LOG_PREFIX} 已自动切换至 Pro 模型`);
-                    } else {
-                        // 已经是 Pro，点击背景或再次点击触发器关闭菜单
-                        document.body.click();
-                        console.log(`${LOG_PREFIX} 当前已是 Pro 模型`);
-                    }
-                } else {
-                    // 没找到 Pro 按钮（可能是菜单没打开），尝试关闭以防遮挡
-                    document.body.click();
-                }
-            }, 300); // 300ms 给予菜单渲染时间
-        } else {
+        if (!triggerBtn) {
             console.warn(`${LOG_PREFIX} 未找到模型切换按钮`);
+            return;
         }
+
+        // 快速检查：如果按钮标签已显示 Pro，跳过
+        const labelSpan = triggerBtn.querySelector('.picker-primary-text, .input-area-switch-label span');
+        if (labelSpan && labelSpan.textContent.trim().includes('Pro')) {
+            console.log(`${LOG_PREFIX} 当前已是 Pro 模型，跳过切换`);
+            return;
+        }
+
+        triggerBtn.click();
+
+        // 2. 等待菜单弹出，通过文本匹配找到 Pro 选项
+        //    新版 Gemini 的模型选项 data-test-id 包含动态哈希 (如 bard-mode-option-e6fa609c3fa255c0)
+        //    不能用硬编码；改用 .label 文本匹配 + 重试机制
+        const trySwitch = (attempt) => {
+            const menuItems = document.querySelectorAll('gem-menu-item[data-test-id^="bard-mode-option-"]');
+            let proItem = null;
+            for (const item of menuItems) {
+                const label = item.querySelector('.label');
+                if (label && label.textContent.trim().includes('Pro')) {
+                    proItem = item;
+                    break;
+                }
+            }
+
+            if (proItem) {
+                if (proItem.classList.contains('selected')) {
+                    console.log(`${LOG_PREFIX} 当前已是 Pro 模型`);
+                    document.body.click();
+                } else {
+                    // 尝试点击内部 gem-menu-item-content (Angular 事件可能绑定在子元素上)
+                    const inner = proItem.querySelector('gem-menu-item-content');
+                    if (inner) {
+                        inner.click();
+                    } else {
+                        proItem.click();
+                    }
+                    console.log(`${LOG_PREFIX} 已自动切换至 Pro 模型`);
+                }
+            } else if (attempt < 3) {
+                // 菜单可能还没渲染完，200ms 后重试
+                setTimeout(() => trySwitch(attempt + 1), 200);
+            } else {
+                console.warn(`${LOG_PREFIX} 菜单中未找到 Pro 选项 (重试${attempt}次)`);
+                document.body.click();
+            }
+        };
+        setTimeout(() => trySwitch(0), 350);
     }
 
     // --- 设置页面 UI ---
@@ -911,14 +964,10 @@
             const success = findAndClickNewChatButton();
 
             if (success) {
-                closeSidebarByClick();
-                // 延迟执行：等待新对话页面加载完成 -> 切换模型 -> 聚焦输入框
-                // 这里的 500ms 取决于你的网络和页面渲染速度，可适当调整
+                // 页面导航后聚焦输入框
                 setTimeout(() => {
-                    switchModelToPro();
-                    // 再次聚焦，防止点击菜单后焦点丢失
-                    setTimeout(focusOnInputField, 200);
-                }, 300);
+                    focusOnInputField();
+                }, 800);
             }
         }
         // Ctrl+I / Cmd+I: 聚焦输入框
@@ -938,7 +987,9 @@
             console.log(`${LOG_PREFIX} 执行 '临时对话' 工作流。`);
             event.preventDefault();
             event.stopPropagation();
-            executeSidebarWorkflow(findAndClickTempChatButton, '临时对话');
+            // 临时对话按钮在页面顶栏，不在侧边栏中，直接点击即可
+            findAndClickTempChatButton();
+            setTimeout(focusOnInputField, 300);
         }
     });
 
