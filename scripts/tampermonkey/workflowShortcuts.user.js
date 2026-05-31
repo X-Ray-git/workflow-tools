@@ -507,13 +507,26 @@
         }
 
         findAndClickTempChatButton() {
+            const selectors = [
+                '[aria-label="开启临时聊天"]',
+                '[aria-label="开启临时对话"]',
+                '[aria-label="Temporary chat"]'
+            ];
+            for (let sel of selectors) {
+                const btn = document.querySelector(sel);
+                if (btn && btn.offsetWidth > 0 && !btn.closest('[inert]')) {
+                    btn.click();
+                    return true;
+                }
+            }
+
             if (window.location.search.includes('temporary-chat=true')) {
                 // If already in temporary chat, just reload to clear
                 window.location.href = '/?temporary-chat=true';
                 return false; 
             }
             
-            // Fallback to URL navigation since ChatGPT hides the toggle in a dropdown
+            // Fallback to URL navigation
             console.log(`${LOG_PREFIX} Navigating to ChatGPT Temporary Chat...`);
             window.location.href = '/?temporary-chat=true';
             return false;
