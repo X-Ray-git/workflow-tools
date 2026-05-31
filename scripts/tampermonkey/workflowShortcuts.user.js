@@ -510,6 +510,8 @@
             const selectors = [
                 '[aria-label="开启临时聊天"]',
                 '[aria-label="开启临时对话"]',
+                '[aria-label="关闭临时聊天"]',
+                '[aria-label="关闭临时对话"]',
                 '[aria-label="Temporary chat"]'
             ];
             for (let sel of selectors) {
