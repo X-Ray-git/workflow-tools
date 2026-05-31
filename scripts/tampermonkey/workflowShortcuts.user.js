@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Gemini 快捷工作流 (Custom Prompt Edition)
+// @name         Workflow 快捷键 (Gemini & ChatGPT)
 // @namespace    http://tampermonkey.net/
 // @version      1.6
-// @description  Gemini 快捷键增强：Ctrl+O 新对话、Ctrl+Shift+N 临时对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏，支持自定义快捷提示词。
+// @description  工作流快捷键增强：支持 Gemini 和 ChatGPT。Ctrl+O 新对话、Ctrl+I 聚焦输入框、Ctrl+L 切换侧边栏，支持自定义快捷提示词。
 // @author       Script Author
 // @match        https://gemini.google.com/*
+// @match        https://chatgpt.com/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
@@ -14,10 +15,10 @@
 (function() {
     'use strict';
 
-    const LOG_PREFIX = "[Gemini 快捷键]";
+    const LOG_PREFIX = "[Workflow 快捷键]";
 
     // --- 存储管理 ---
-    const STORAGE_KEY = 'gemini_custom_shortcuts';
+    const STORAGE_KEY = 'workflow_custom_shortcuts';
 
     function loadConfig() {
         const config = GM_getValue(STORAGE_KEY, []);
@@ -342,239 +343,256 @@
         }
     `);
 
-    // --- DOM 工具 ---
-
-    /**
-     * 查找并点击“新对话”按钮
-     */
-    function findAndClickNewChatButton() {
-        // 优先点击 <a> 链接直接导航，避免 sidebar 展开/关闭动画干扰
-        const selectors = [
-            '[data-test-id="new-chat-button"] a[aria-label="New chat"]',
-            '[data-test-id="new-chat-button"] a[href="/app"]',
-            'side-nav-action-button[data-test-id="new-chat-button"] a',
-            '[aria-label="New chat"]',
-            '[aria-label="新对话"]',
-            '[data-test-id="new-chat-button"]',
-            'button[data-test-id="new-chat-button"]',
-            function() {
-                // 文本匹配回退
-                const elements = document.querySelectorAll('gem-nav-list-item .title-text, side-nav-action-button .gds-body-m, side-nav-action-button span');
-                for (let el of elements) {
-                    const text = el.textContent ? el.textContent.trim().toLowerCase() : '';
-                    if (text === 'new chat' || text === '新对话') {
-                        // 优先找包裹的 <a>，否则返回父级可点击元素
-                        return el.closest('a') || el.closest('a, button, gem-nav-list-item, side-nav-action-button');
+    // --- 站点适配器 (Site Adapters) ---
+    class GeminiAdapter {
+        findAndClickNewChatButton() {
+            const selectors = [
+                '[data-test-id="new-chat-button"] a[aria-label="New chat"]',
+                '[data-test-id="new-chat-button"] a[href="/app"]',
+                'side-nav-action-button[data-test-id="new-chat-button"] a',
+                '[aria-label="New chat"]',
+                '[aria-label="新对话"]',
+                '[data-test-id="new-chat-button"]',
+                'button[data-test-id="new-chat-button"]',
+                function() {
+                    const elements = document.querySelectorAll('gem-nav-list-item .title-text, side-nav-action-button .gds-body-m, side-nav-action-button span');
+                    for (let el of elements) {
+                        const text = el.textContent ? el.textContent.trim().toLowerCase() : '';
+                        if (text === 'new chat' || text === '新对话') {
+                            return el.closest('a') || el.closest('a, button, gem-nav-list-item, side-nav-action-button');
+                        }
                     }
+                    return null;
                 }
-                return null;
+            ];
+            let newChatButton = null;
+            for (let selector of selectors) {
+                newChatButton = (typeof selector === 'function') ? selector() : document.querySelector(selector);
+                if (newChatButton) break;
             }
-        ];
-
-        let newChatButton = null;
-        for (let selector of selectors) {
-            newChatButton = (typeof selector === 'function') ? selector() : document.querySelector(selector);
-            if (newChatButton) break;
-        }
-
-        if (newChatButton) {
-            if (newChatButton.disabled || newChatButton.getAttribute('aria-disabled') === 'true') {
-                console.warn(`${LOG_PREFIX} '新对话' 按钮被禁用。`);
-                return false;
+            if (newChatButton) {
+                if (newChatButton.disabled || newChatButton.getAttribute('aria-disabled') === 'true') return false;
+                newChatButton.click();
+                return true;
             }
-            newChatButton.click();
-            return true;
+            return false;
         }
-        return false;
-    }
 
-    function findAndClickTempChatButton() {
-        const selectors = [
-            'button[aria-label="Temporary chat"]',
-            'button[data-test-id="temp-chat-button"]',
-            'button[aria-label="New temporary chat"]',
-            'button[aria-label="Start temporary chat"]',
-            'button[aria-label="临时对话"]',
-            'button[aria-label="开始临时对话"]',
-            'button.temp-chat-button.mat-unthemed'
-        ];
-        let btn = null;
-        for (let s of selectors) {
-            btn = (typeof s === 'function') ? s() : document.querySelector(s);
-            if (btn) break;
+        findAndClickTempChatButton() {
+            const selectors = [
+                'button[aria-label="Temporary chat"]', 'button[data-test-id="temp-chat-button"]',
+                'button[aria-label="New temporary chat"]', 'button[aria-label="Start temporary chat"]',
+                'button[aria-label="临时对话"]', 'button[aria-label="开始临时对话"]',
+                'button.temp-chat-button.mat-unthemed'
+            ];
+            let btn = null;
+            for (let s of selectors) {
+                btn = (typeof s === 'function') ? s() : document.querySelector(s);
+                if (btn) break;
+            }
+            if (btn && !btn.disabled) {
+                btn.click();
+                return true;
+            }
+            return false;
         }
-        if (btn && !btn.disabled) {
-            btn.click();
-            return true;
+
+        isSidebarOpen() {
+            const sideNav = document.querySelector('bard-sidenav');
+            if (sideNav && !sideNav.classList.contains('collapsed')) return true;
+            const chatApp = document.querySelector('chat-app');
+            if (chatApp && chatApp.classList.contains('side-nav-open')) return true;
+            return false;
         }
-        return false;
-    }
 
-    /**
-     * 检测侧边栏是否打开 (兼容桌面端 bard-sidenav 和移动端 chat-app)
-     */
-    function isSidebarOpen() {
-        const sideNav = document.querySelector('bard-sidenav');
-        if (sideNav && !sideNav.classList.contains('collapsed')) return true;
-        const chatApp = document.querySelector('chat-app');
-        if (chatApp && chatApp.classList.contains('side-nav-open')) return true;
-        return false;
-    }
+        getSidebarToggleButton() {
+            const closeBtn = document.querySelector('button[aria-label="Close sidebar"].close-sidenav-button');
+            if (closeBtn) return closeBtn;
+            return document.querySelector('button[data-test-id="side-nav-sparkle-button"][aria-label="Open sidebar"]')
+                || document.querySelector('button[data-test-id="side-nav-menu-button"]');
+        }
 
-    /**
-     * 获取侧边栏开关按钮
-     * 关闭态: button[aria-label="Open sidebar"] (sparkle)
-     * 展开态: button[aria-label="Close sidebar"].close-sidenav-button (专用关闭按钮)
-     */
-    function getSidebarToggleButton() {
-        // 展开态：专用关闭按钮
-        const closeBtn = document.querySelector('button[aria-label="Close sidebar"].close-sidenav-button');
-        if (closeBtn) return closeBtn;
-        // 关闭态：sparkle 按钮 (新版 + 旧版回退)
-        return document.querySelector('button[data-test-id="side-nav-sparkle-button"][aria-label="Open sidebar"]')
-            || document.querySelector('button[data-test-id="side-nav-menu-button"]');
-    }
+        closeSidebarByClick() {
+            if (this.isSidebarOpen()) {
+                const btn = this.getSidebarToggleButton();
+                if (btn) btn.click();
+            }
+        }
 
-    function closeSidebarByClick() {
-        if (isSidebarOpen()) {
-            const btn = getSidebarToggleButton();
+        toggleSidebar() {
+            const btn = this.getSidebarToggleButton();
             if (btn) btn.click();
         }
-    }
 
-    function toggleSidebar() {
-        const btn = getSidebarToggleButton();
-        if (btn) btn.click();
-    }
-
-    function getInputField() {
-        const inputSelector = 'div.ql-editor[aria-label="Enter a prompt for Gemini"], div.ql-editor[aria-label="Enter a prompt here"], div.ql-editor[aria-label="在此处输入提示"], div[role="textbox"][contenteditable="true"]';
-        return document.querySelector(inputSelector);
-    }
-
-    function focusOnInputField() {
-        const inputField = getInputField();
-        if (inputField) inputField.focus();
-    }
-
-    function insertTextToInput(text) {
-        const inputField = getInputField();
-        if (!inputField) return;
-
-        inputField.focus();
-        setTimeout(() => {
-            const success = document.execCommand('insertText', false, text);
-            if (!success || inputField.textContent.trim() === '') {
-                 inputField.innerText = text;
-                 inputField.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-        }, 50);
-    }
-
-    function executeSidebarWorkflow(clickActionFunc, actionName) {
-        let sidebarWasClosed = false;
-
-        if (!isSidebarOpen()) {
-            toggleSidebar();
-            sidebarWasClosed = true;
+        getInputField() {
+            const inputSelector = 'div.ql-editor[aria-label="Enter a prompt for Gemini"], div.ql-editor[aria-label="Enter a prompt here"], div.ql-editor[aria-label="在此处输入提示"], div[role="textbox"][contenteditable="true"]';
+            return document.querySelector(inputSelector);
         }
 
-        const clickWorkflow = () => {
-            if (clickActionFunc()) {
-                setTimeout(closeSidebarByClick, 100);
-                setTimeout(focusOnInputField, 200);
-            } else {
-                if (sidebarWasClosed) toggleSidebar();
-            }
-        };
-        setTimeout(clickWorkflow, sidebarWasClosed ? 350 : 50);
-    }
-
-    function executeCustomWorkflow(prompt, newChat) {
-        console.log(`${LOG_PREFIX} 执行自定义 Prompt, 新对话: ${newChat}`);
-        if (newChat) {
-            const success = findAndClickNewChatButton();
-            if (success) {
-                closeSidebarByClick();
-                setTimeout(() => insertTextToInput(prompt), 600);
-            }
-        } else {
-            focusOnInputField();
-            insertTextToInput(prompt);
-        }
-    }
-
-    /**
-     * 尝试切换到 Pro 模型
-     * 逻辑：找到顶部切换器 -> 点击打开菜单 -> 延时 -> 点击 Pro 选项
-     */
-    function switchModelToPro() {
-        // 1. 寻找打开模型菜单的触发按钮
-        const triggerSelectors = [
-            'button[data-test-id="bard-mode-menu-button"]',           // 新版 test-id
-            'button[data-test-id="bard-mode-menu-trigger"]',          // 旧版 test-id (回退)
-            'bard-mode-switcher button',                               // 组件选择器
-            'button[aria-haspopup="menu"][aria-label*="mode"]'        // 语义回退
-        ];
-
-        let triggerBtn = null;
-        for (let sel of triggerSelectors) {
-            triggerBtn = document.querySelector(sel);
-            if (triggerBtn) break;
+        focusOnInputField() {
+            const inputField = this.getInputField();
+            if (inputField) inputField.focus();
         }
 
-        if (!triggerBtn) {
-            console.warn(`${LOG_PREFIX} 未找到模型切换按钮`);
-            return;
-        }
-
-        // 快速检查：如果按钮标签已显示 Pro，跳过
-        const labelSpan = triggerBtn.querySelector('.picker-primary-text, .input-area-switch-label span');
-        if (labelSpan && labelSpan.textContent.trim().includes('Pro')) {
-            console.log(`${LOG_PREFIX} 当前已是 Pro 模型，跳过切换`);
-            return;
-        }
-
-        triggerBtn.click();
-
-        // 2. 等待菜单弹出，通过文本匹配找到 Pro 选项
-        //    新版 Gemini 的模型选项 data-test-id 包含动态哈希 (如 bard-mode-option-e6fa609c3fa255c0)
-        //    不能用硬编码；改用 .label 文本匹配 + 重试机制
-        const trySwitch = (attempt) => {
-            const menuItems = document.querySelectorAll('gem-menu-item[data-test-id^="bard-mode-option-"]');
-            let proItem = null;
-            for (const item of menuItems) {
-                const label = item.querySelector('.label');
-                if (label && label.textContent.trim().includes('Pro')) {
-                    proItem = item;
-                    break;
+        insertTextToInput(text) {
+            const inputField = this.getInputField();
+            if (!inputField) return;
+            inputField.focus();
+            setTimeout(() => {
+                const success = document.execCommand('insertText', false, text);
+                if (!success || inputField.textContent.trim() === '') {
+                     inputField.innerText = text;
+                     inputField.dispatchEvent(new Event('input', { bubbles: true }));
                 }
-            }
+            }, 50);
+        }
 
-            if (proItem) {
-                if (proItem.classList.contains('selected')) {
-                    console.log(`${LOG_PREFIX} 当前已是 Pro 模型`);
-                    document.body.click();
+        executeSidebarWorkflow(clickActionFunc, actionName) {
+            let sidebarWasClosed = false;
+            if (!this.isSidebarOpen()) {
+                this.toggleSidebar();
+                sidebarWasClosed = true;
+            }
+            const clickWorkflow = () => {
+                if (clickActionFunc()) {
+                    setTimeout(() => this.closeSidebarByClick(), 100);
+                    setTimeout(() => this.focusOnInputField(), 200);
                 } else {
-                    // 尝试点击内部 gem-menu-item-content (Angular 事件可能绑定在子元素上)
-                    const inner = proItem.querySelector('gem-menu-item-content');
-                    if (inner) {
-                        inner.click();
-                    } else {
-                        proItem.click();
-                    }
-                    console.log(`${LOG_PREFIX} 已自动切换至 Pro 模型`);
+                    if (sidebarWasClosed) this.toggleSidebar();
                 }
-            } else if (attempt < 3) {
-                // 菜单可能还没渲染完，200ms 后重试
-                setTimeout(() => trySwitch(attempt + 1), 200);
+            };
+            setTimeout(clickWorkflow, sidebarWasClosed ? 350 : 50);
+        }
+
+        executeCustomWorkflow(prompt, newChat) {
+            console.log(`${LOG_PREFIX} [Gemini] 执行自定义 Prompt, 新对话: ${newChat}`);
+            if (newChat) {
+                const success = this.findAndClickNewChatButton();
+                if (success) {
+                    this.closeSidebarByClick();
+                    setTimeout(() => this.insertTextToInput(prompt), 600);
+                }
             } else {
-                console.warn(`${LOG_PREFIX} 菜单中未找到 Pro 选项 (重试${attempt}次)`);
-                document.body.click();
+                this.focusOnInputField();
+                this.insertTextToInput(prompt);
             }
-        };
-        setTimeout(() => trySwitch(0), 350);
+        }
     }
+
+    class ChatGPTAdapter {
+        findAndClickNewChatButton() {
+            const selectors = [
+                '[data-testid="new-chat-button"]',
+                'a[href="/"]',
+                'a[href="/?model=auto"]'
+            ];
+            let btn = null;
+            for (let s of selectors) {
+                btn = document.querySelector(s);
+                // ensure it actually looks like a new chat button
+                if (btn && btn.textContent && (btn.textContent.includes('New chat') || btn.textContent.includes('新对话'))) break;
+                // or if it's SVG only, we trust data-testid
+                if (btn && s.includes('data-testid')) break;
+            }
+            if (!btn) {
+                // Fallback: icon button based
+                const allLinks = document.querySelectorAll('a[href="/"]');
+                if (allLinks.length > 0) btn = allLinks[0];
+            }
+            if (btn) {
+                btn.click();
+                return true;
+            }
+            return false;
+        }
+
+        findAndClickTempChatButton() {
+            console.warn(`${LOG_PREFIX} ChatGPT 暂未原生支持临时对话快捷键`);
+            return false;
+        }
+
+        isSidebarOpen() {
+            const closeBtn = document.querySelector('[data-testid="close-sidebar-button"], [aria-label="Close sidebar"], [aria-label="关闭侧边栏"], [aria-label="关闭边栏"]');
+            if (!closeBtn) return false;
+            if (closeBtn.getAttribute('aria-expanded') === 'true') return true;
+            if (closeBtn.getAttribute('aria-expanded') === 'false') return false;
+            return !closeBtn.closest('[inert]') && closeBtn.offsetWidth > 0;
+        }
+
+        getSidebarToggleButton() {
+            const selectors = [
+                '[data-testid="close-sidebar-button"], [data-testid="open-sidebar-button"]',
+                '[aria-label="Close sidebar"], [aria-label="Open sidebar"]',
+                '[aria-label="关闭侧边栏"], [aria-label="打开侧边栏"], [aria-label="关闭边栏"], [aria-label="打开边栏"]'
+            ];
+            for (let sel of selectors) {
+                const elements = document.querySelectorAll(sel);
+                for (let el of elements) {
+                    if (!el.closest('[inert]') && el.offsetWidth > 0) {
+                        return el;
+                    }
+                }
+            }
+            return null;
+        }
+
+        closeSidebarByClick() {
+            if (this.isSidebarOpen()) {
+                const btn = this.getSidebarToggleButton();
+                if (btn) btn.click();
+            }
+        }
+
+        toggleSidebar() {
+            const btn = this.getSidebarToggleButton();
+            if (btn) btn.click();
+        }
+
+        getInputField() {
+            return document.getElementById('prompt-textarea');
+        }
+
+        focusOnInputField() {
+            const inputField = this.getInputField();
+            if (inputField) inputField.focus();
+        }
+
+        insertTextToInput(text) {
+            const inputField = this.getInputField();
+            if (!inputField) return;
+            inputField.focus();
+            
+            // ChatGPT uses ProseMirror (contenteditable)
+            setTimeout(() => {
+                const success = document.execCommand('insertText', false, text);
+                if (!success || inputField.textContent.trim() === '') {
+                    // Fallback for React/ProseMirror if execCommand fails
+                    const p = document.createElement('p');
+                    p.textContent = text;
+                    inputField.innerHTML = '';
+                    inputField.appendChild(p);
+                    inputField.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 50);
+        }
+
+        executeCustomWorkflow(prompt, newChat) {
+            console.log(`${LOG_PREFIX} [ChatGPT] 执行自定义 Prompt, 新对话: ${newChat}`);
+            if (newChat) {
+                const success = this.findAndClickNewChatButton();
+                if (success) {
+                    this.closeSidebarByClick();
+                    setTimeout(() => this.insertTextToInput(prompt), 800);
+                }
+            } else {
+                this.focusOnInputField();
+                this.insertTextToInput(prompt);
+            }
+        }
+    }
+
+    // Initialize adapter based on host
+    const siteAdapter = location.hostname.includes('chatgpt.com') ? new ChatGPTAdapter() : new GeminiAdapter();
 
     // --- 设置页面 UI ---
 
@@ -947,7 +965,7 @@
             if (matchCtrl && matchMeta && matchShift && matchAlt && matchKey) {
                 event.preventDefault();
                 event.stopPropagation();
-                executeCustomWorkflow(item.prompt, item.newChat);
+                siteAdapter.executeCustomWorkflow(item.prompt, item.newChat);
                 return;
             }
         }
@@ -961,12 +979,12 @@
             event.preventDefault();
             event.stopPropagation();
 
-            const success = findAndClickNewChatButton();
+            const success = siteAdapter.findAndClickNewChatButton();
 
             if (success) {
                 // 页面导航后聚焦输入框
                 setTimeout(() => {
-                    focusOnInputField();
+                    siteAdapter.focusOnInputField();
                 }, 800);
             }
         }
@@ -974,13 +992,13 @@
         else if (isCtrlOrMeta && !event.shiftKey && event.code === 'KeyI') {
             event.preventDefault();
             event.stopPropagation();
-            focusOnInputField();
+            siteAdapter.focusOnInputField();
         }
         // Ctrl+L / Cmd+L: 切换侧边栏
         else if (isCtrlOrMeta && !event.shiftKey && event.code === 'KeyL') {
             event.preventDefault();
             event.stopPropagation();
-            toggleSidebar();
+            siteAdapter.toggleSidebar();
         }
         // Ctrl+Shift+N / Cmd+Shift+N: 临时对话
         else if (isCtrlOrMeta && event.shiftKey && event.code === 'KeyN') {
@@ -988,7 +1006,7 @@
             event.preventDefault();
             event.stopPropagation();
             // 临时对话按钮在页面顶栏，不在侧边栏中，直接点击即可
-            findAndClickTempChatButton();
+            siteAdapter.findAndClickTempChatButton();
             setTimeout(focusOnInputField, 300);
         }
     });
