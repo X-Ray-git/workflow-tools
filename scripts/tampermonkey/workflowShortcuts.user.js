@@ -507,7 +507,15 @@
         }
 
         findAndClickTempChatButton() {
-            console.warn(`${LOG_PREFIX} ChatGPT 暂未原生支持临时对话快捷键`);
+            if (window.location.search.includes('temporary-chat=true')) {
+                // If already in temporary chat, just reload to clear
+                window.location.href = '/?temporary-chat=true';
+                return false; 
+            }
+            
+            // Fallback to URL navigation since ChatGPT hides the toggle in a dropdown
+            console.log(`${LOG_PREFIX} Navigating to ChatGPT Temporary Chat...`);
+            window.location.href = '/?temporary-chat=true';
             return false;
         }
 
