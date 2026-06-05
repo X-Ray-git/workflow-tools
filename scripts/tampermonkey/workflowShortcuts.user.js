@@ -341,6 +341,20 @@
             border-color: #666;
             color: #aaa;
         }
+        
+        .settings-info {
+            padding: 12px 24px;
+            background: #e8f0fe;
+            color: #1a73e8;
+            font-size: 13px;
+            line-height: 1.5;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        body.dark-theme .settings-info {
+            background: #1e293b;
+            color: #8ab4f8;
+            border-bottom-color: #444;
+        }
     `);
 
     // --- 站点适配器 (Site Adapters) ---
@@ -647,6 +661,10 @@
         header.appendChild(closeBtn);
 
         // --- Content ---
+        const infoMsg = document.createElement('div');
+        infoMsg.className = 'settings-info';
+        infoMsg.innerHTML = '提示词支持使用变量：<br><code style="background:rgba(128,128,128,0.2);padding:2px 4px;border-radius:4px;margin-top:4px;display:inline-block;">{{clipboard}}</code> : 注入系统剪贴板的纯文本内容';
+
         const content = document.createElement('div');
         content.className = 'settings-content';
         content.id = 'settings-list';
@@ -684,6 +702,7 @@
 
         // Assemble Modal
         modal.appendChild(header);
+        modal.appendChild(infoMsg);
         modal.appendChild(content);
         modal.appendChild(addBtnWrapper);
         modal.appendChild(footer);
@@ -988,7 +1007,20 @@
             if (matchCtrl && matchMeta && matchShift && matchAlt && matchKey) {
                 event.preventDefault();
                 event.stopPropagation();
-                siteAdapter.executeCustomWorkflow(item.prompt, item.newChat);
+                
+                (async () => {
+                    let finalPrompt = item.prompt;
+                    if (finalPrompt && finalPrompt.includes('{{clipboard}}')) {
+                        try {
+                            const clipText = await navigator.clipboard.readText();
+                            finalPrompt = finalPrompt.replace(/\{\{clipboard\}\}/g, clipText);
+                        } catch (err) {
+                            console.error(`${LOG_PREFIX} 无法读取剪贴板:`, err);
+                        }
+                    }
+                    siteAdapter.executeCustomWorkflow(finalPrompt, item.newChat);
+                })();
+
                 return;
             }
         }
@@ -1030,9 +1062,9 @@
             event.stopPropagation();
             // 临时对话按钮在页面顶栏，不在侧边栏中，直接点击即可
             siteAdapter.findAndClickTempChatButton();
-            setTimeout(focusOnInputField, 300);
+            setTimeout(() => siteAdapter.focusOnInputField(), 300);
         }
     });
 
-    console.log(`${LOG_PREFIX} 脚本已加载 (v1.5)。按 Cmd/Ctrl+Shift+, 打开设置。`);
+    console.log(`${LOG_PREFIX} 脚本已加载 (v1.6)。按 Cmd/Ctrl+Shift+, 打开设置。`);
 })();
