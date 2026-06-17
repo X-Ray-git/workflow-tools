@@ -34,7 +34,7 @@
     // --- 样式注入 ---
     // 自动适配深色/浅色模式 (基于 Gemini 的 body 属性或其他特征，这里采用简单的媒体查询+类名判断策略)
     // 实际运行时，会在打开模态框时检测页面主题并添加对应类名
-    GM_addStyle(`
+    const SHADOW_CSS = `
         #gemini-shortcut-settings-overlay {
             position: fixed;
             top: 0;
@@ -68,7 +68,7 @@
             color: #1f1f1f;
         }
         /* Dark Mode Styles */
-        body.dark-theme #gemini-shortcut-settings-modal {
+        .dark-theme #gemini-shortcut-settings-modal {
             background: #1e1e1e;
             color: #e3e3e3;
             box-shadow: 0 4px 24px rgba(0,0,0,0.6);
@@ -82,7 +82,7 @@
             justify-content: space-between;
             align-items: center;
         }
-        body.dark-theme .settings-header {
+        .dark-theme .settings-header {
             border-bottom-color: #444;
         }
         .settings-title {
@@ -106,7 +106,7 @@
             flex: 1;
             background: #f5f5f5; /* Light background for contrast */
         }
-        body.dark-theme .settings-content {
+        .dark-theme .settings-content {
             background: #1e1e1e; /* Dark background matches modal */
         }
 
@@ -121,7 +121,7 @@
             background: #fff;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-        body.dark-theme .shortcut-item {
+        .dark-theme .shortcut-item {
             background: #2d2d2d;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
@@ -155,7 +155,7 @@
             margin-bottom: 6px;
             display: block;
         }
-        body.dark-theme .input-label {
+        .dark-theme .input-label {
             color: #aaa;
         }
 
@@ -179,12 +179,12 @@
             border-color: #1a73e8;
             outline: none;
         }
-        body.dark-theme input[type="text"], body.dark-theme textarea {
+        .dark-theme input[type="text"], .dark-theme textarea {
             background: #3c4043;
             border-color: #5f6368;
             color: #e3e3e3;
         }
-        body.dark-theme input[type="text"]:focus, body.dark-theme textarea:focus {
+        .dark-theme input[type="text"]:focus, .dark-theme textarea:focus {
             border-color: #8ab4f8;
         }
 
@@ -206,7 +206,7 @@
             font-size: 13px;
             color: #5f6368;
         }
-        body.dark-theme .switch-label {
+        .dark-theme .switch-label {
             color: #aaa;
         }
 
@@ -241,10 +241,10 @@
         input[type="checkbox"]:checked + .toggle-switch::after {
             transform: translateX(16px);
         }
-        body.dark-theme .toggle-switch {
+        .dark-theme .toggle-switch {
             background: #5f6368;
         }
-        body.dark-theme input[type="checkbox"]:checked + .toggle-switch {
+        .dark-theme input[type="checkbox"]:checked + .toggle-switch {
             background: #8ab4f8;
         }
 
@@ -268,10 +268,10 @@
             background: #fee2e2;
             color: #d93025;
         }
-        body.dark-theme .delete-btn {
+        .dark-theme .delete-btn {
             color: #aaa;
         }
-        body.dark-theme .delete-btn:hover {
+        .dark-theme .delete-btn:hover {
             background: #5c2b2b;
             color: #ff8a80;
         }
@@ -282,7 +282,7 @@
             margin-top: 4px;
             display: none;
         }
-        body.dark-theme .conflict-warning {
+        .dark-theme .conflict-warning {
             color: #ff8a80;
         }
 
@@ -295,7 +295,7 @@
             gap: 12px;
             background: #fff;
         }
-        body.dark-theme .settings-footer {
+        .dark-theme .settings-footer {
             border-top-color: #444;
             background: #1e1e1e;
         }
@@ -315,11 +315,11 @@
             background: #f1f3f4;
             color: #1f1f1f;
         }
-        body.dark-theme .btn-primary {
+        .dark-theme .btn-primary {
             background: #8ab4f8;
             color: #202124;
         }
-        body.dark-theme .btn-secondary {
+        .dark-theme .btn-secondary {
             background: #3c4043;
             color: #e3e3e3;
         }
@@ -337,7 +337,7 @@
             padding: 12px;
             border-radius: 12px;
         }
-        body.dark-theme .btn-add {
+        .dark-theme .btn-add {
             border-color: #666;
             color: #aaa;
         }
@@ -350,12 +350,12 @@
             line-height: 1.5;
             border-bottom: 1px solid #e0e0e0;
         }
-        body.dark-theme .settings-info {
+        .dark-theme .settings-info {
             background: #1e293b;
             color: #8ab4f8;
             border-bottom-color: #444;
         }
-    `);
+    `;
 
     // --- 站点适配器 (Site Adapters) ---
     class GeminiAdapter {
@@ -634,7 +634,23 @@
     // --- 设置页面 UI ---
 
     function createSettingsUI() {
-        if (document.getElementById('gemini-shortcut-settings-overlay')) return;
+        let host = document.getElementById('gemini-shortcut-settings-host');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'gemini-shortcut-settings-host';
+            // ensure it's on top of everything
+            host.style.position = 'fixed';
+            host.style.zIndex = '99999';
+            document.body.appendChild(host);
+            
+            const shadowRoot = host.attachShadow({ mode: 'open' });
+            const style = document.createElement('style');
+            style.textContent = SHADOW_CSS;
+            shadowRoot.appendChild(style);
+        }
+        
+        const shadowRoot = host.shadowRoot;
+        if (shadowRoot.getElementById('gemini-shortcut-settings-overlay')) return;
 
         // 1. Overlay
         const overlay = document.createElement('div');
@@ -709,13 +725,15 @@
 
         // Assemble Overlay
         overlay.appendChild(modal);
-        document.body.appendChild(overlay);
+        shadowRoot.appendChild(overlay);
     }
 
     function openSettings() {
         createSettingsUI(); // Ensure it exists
-        const overlay = document.getElementById('gemini-shortcut-settings-overlay');
-        const list = document.getElementById('settings-list');
+        const host = document.getElementById('gemini-shortcut-settings-host');
+        const sr = host.shadowRoot;
+        const overlay = sr.getElementById('gemini-shortcut-settings-overlay');
+        const list = sr.getElementById('settings-list');
         list.textContent = ''; // Clear current list
 
         // Check theme
@@ -725,22 +743,21 @@
                        window.matchMedia('(prefers-color-scheme: dark)').matches; // System preference fallback
 
         if (isDark) {
-            document.body.classList.add('dark-theme'); // Helper class for our CSS
+            overlay.classList.add('dark-theme');
         } else {
-            document.body.classList.remove('dark-theme');
+            overlay.classList.remove('dark-theme');
         }
 
         const config = loadConfig();
         config.forEach(item => addShortcutItemUI(item));
-        if (config.length === 0) {
-            // Optional: Add one empty item if empty? Or just leave button.
-        }
-
+        
         overlay.classList.add('visible');
     }
 
     function closeSettings() {
-        const overlay = document.getElementById('gemini-shortcut-settings-overlay');
+        const host = document.getElementById('gemini-shortcut-settings-host');
+        if (!host || !host.shadowRoot) return;
+        const overlay = host.shadowRoot.getElementById('gemini-shortcut-settings-overlay');
         if (overlay) {
             overlay.classList.remove('visible');
             setTimeout(() => {
@@ -750,7 +767,9 @@
     }
 
     function saveAndCloseSettings() {
-        const list = document.getElementById('settings-list');
+        const host = document.getElementById('gemini-shortcut-settings-host');
+        const sr = host.shadowRoot;
+        const list = sr.getElementById('settings-list');
         const items = list.querySelectorAll('.shortcut-item');
         const newConfig = [];
 
@@ -800,7 +819,6 @@
 
     function isSystemConflict(e) {
         // Simple heuristic for common conflicts
-        // e.g. Ctrl+C, Ctrl+V, Cmd+W, Cmd+Q
         const key = e.key.toLowerCase();
         const isCtrlOrCmd = e.ctrlKey || e.metaKey;
 
@@ -811,7 +829,9 @@
     }
 
     function addShortcutItemUI(data = null) {
-        const list = document.getElementById('settings-list');
+        const host = document.getElementById('gemini-shortcut-settings-host');
+        const sr = host.shadowRoot;
+        const list = sr.getElementById('settings-list');
         const item = document.createElement('div');
         item.className = 'shortcut-item';
 
@@ -905,8 +925,7 @@
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
         deleteBtn.title = '删除此快捷键';
-        // Using strict DOM methods for icon
-        deleteBtn.textContent = '×'; // Simple text X is safest and clean
+        deleteBtn.textContent = '×';
 
         colRight.appendChild(deleteBtn);
 
@@ -926,7 +945,6 @@
              keyInput.classList.remove('recording');
              if (!keyInput.dataset.key) keyInput.value = '';
              else {
-                 // Restore display
                  const d = JSON.parse(keyInput.dataset.key);
                  keyInput.value = formatShortcutString(d);
              }
@@ -936,7 +954,6 @@
             e.preventDefault();
             e.stopPropagation();
 
-            // Ignore standalone modifiers
             if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return;
 
             const shortcutData = {
@@ -951,7 +968,6 @@
             keyInput.dataset.key = JSON.stringify(shortcutData);
             keyInput.value = formatShortcutString(e);
 
-            // Conflict check
             if (isSystemConflict(e)) {
                 warning.style.display = 'block';
             } else {
