@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "ChatFlow",
+  "description": "Personal ChatGPT workflow tools, starting with opening ChatGPT beside arXiv PDFs in Chrome Split View.",
+  "version": "0.3.0",
+  "minimum_chrome_version": "140",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://arxiv.org/*",
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/arxiv-split-view.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://arxiv.org/abs/*"
+      ],
+      "js": [
+        "src/content/arxiv-first-visit.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/content/chatgpt-shortcuts.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
