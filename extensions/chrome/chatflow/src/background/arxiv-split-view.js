@@ -3,6 +3,10 @@ const CHATGPT_URL = "https://chatgpt.com/";
 const RECENT_TAB_WINDOW_MS = 3000;
 const CANDIDATE_TTL_MS = 10000;
 const RETRY_DELAYS_MS = [0, 80, 200, 500, 1000, 2000];
+const PDF_UPLOAD_PORT = "chatflow-pdf-upload";
+const PDF_TASK_PREFIX = "pendingPdfUpload:";
+const PDF_TASK_TTL_MS = 2 * 60 * 1000;
+const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
 // tabId -> { createdAt, windowId, initialUrl, seenSplitViewId, processed }
 const recentTabs = new Map();
@@ -80,6 +84,122 @@ function summarizeTab(tab) {
 
 function skip(tab, reason, details = {}) {
   log("[skip]", { tabId: tab?.id, reason, ...details });
+}
+
+function pdfTaskKey(tabId) {
+  return `${PDF_TASK_PREFIX}${tabId}`;
+}
+
+async function setPendingPdfUpload(targetTabId, sourceUrl) {
+  await chrome.storage.session.set({
+    [pdfTaskKey(targetTabId)]: {
+      sourceUrl,
+      createdAt: Date.now(),
+    },
+  });
+}
+
+async function getPendingPdfUpload(targetTabId) {
+  const key = pdfTaskKey(targetTabId);
+  const stored = await chrome.storage.session.get(key);
+  const task = stored[key];
+
+  if (!task || Date.now() - task.createdAt > PDF_TASK_TTL_MS) {
+    if (task) await chrome.storage.session.remove(key);
+    return null;
+  }
+
+  return task;
+}
+
+async function clearPendingPdfUpload(targetTabId) {
+  await chrome.storage.session.remove(pdfTaskKey(targetTabId));
+}
+
+function pdfFilename(url) {
+  const pathname = new URL(url).pathname;
+  const lastSegment = decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "paper");
+  const basename = lastSegment.replace(/\.pdf$/i, "") || "paper";
+  return `${basename}.pdf`;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const step = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += step) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + step));
+  }
+  return btoa(binary);
+}
+
+async function transferPdf(port, targetTabId, task) {
+  try {
+    port.postMessage({ type: "status", status: "fetching" });
+    const response = await fetch(task.sourceUrl, {
+      cache: "no-store",
+      credentials: "omit",
+    });
+    if (!response.ok) throw new Error(`arXiv returned HTTP ${response.status}`);
+
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > MAX_PDF_BYTES) {
+      throw new Error("PDF exceeds ChatFlow's 50 MB transfer limit");
+    }
+
+    const contentType = response.headers.get("content-type") || "application/pdf";
+    if (!contentType.toLowerCase().includes("pdf")) {
+      throw new Error(`unexpected content type: ${contentType}`);
+    }
+
+    port.postMessage({
+      type: "start",
+      filename: pdfFilename(task.sourceUrl),
+      contentType: "application/pdf",
+      expectedBytes: contentLength || null,
+    });
+
+    let totalBytes = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > MAX_PDF_BYTES) {
+          await reader.cancel();
+          throw new Error("PDF exceeds ChatFlow's 50 MB transfer limit");
+        }
+        port.postMessage({ type: "chunk", data: bytesToBase64(value) });
+      }
+    } else {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      totalBytes = bytes.byteLength;
+      if (totalBytes > MAX_PDF_BYTES) {
+        throw new Error("PDF exceeds ChatFlow's 50 MB transfer limit");
+      }
+      port.postMessage({ type: "chunk", data: bytesToBase64(bytes) });
+    }
+
+    await clearPendingPdfUpload(targetTabId);
+    port.postMessage({ type: "done", totalBytes });
+    log("[PDF transferred]", {
+      targetTabId,
+      sourceUrl: task.sourceUrl,
+      totalBytes,
+    });
+  } catch (error) {
+    await clearPendingPdfUpload(targetTabId);
+    log("[PDF transfer failed]", {
+      targetTabId,
+      sourceUrl: task.sourceUrl,
+      error: String(error),
+    });
+    try {
+      port.postMessage({ type: "error", message: String(error) });
+    } catch {
+      // The ChatGPT tab may have closed while the PDF was being fetched.
+    }
+  }
 }
 
 function clearRetryTimers(tabId) {
@@ -190,9 +310,11 @@ async function evaluateCandidate(tabId, trigger) {
   });
 
   try {
+    await setPendingPdfUpload(tab.id, tabUrl(sourceTab));
     await chrome.tabs.update(tab.id, { url: CHATGPT_URL });
     log("[update to ChatGPT]", { targetTabId: tab.id, url: CHATGPT_URL });
   } catch (error) {
+    await clearPendingPdfUpload(tab.id);
     candidate.processed = false;
     processedTabIds.delete(tabId);
     log("[update failed]", { targetTabId: tab.id, error: String(error) });
@@ -245,6 +367,31 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   recentTabs.delete(tabId);
   processedTabIds.delete(tabId);
   clearRetryTimers(tabId);
+  void clearPendingPdfUpload(tabId);
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PDF_UPLOAD_PORT) return;
+
+  const targetTabId = port.sender?.tab?.id;
+  if (!Number.isInteger(targetTabId)) {
+    port.disconnect();
+    return;
+  }
+
+  let started = false;
+  port.onMessage.addListener((message) => {
+    if (message?.type !== "claim" || started) return;
+    started = true;
+
+    void getPendingPdfUpload(targetTabId).then((task) => {
+      if (!task) {
+        port.postMessage({ type: "none" });
+        return;
+      }
+      return transferPdf(port, targetTabId, task);
+    });
+  });
 });
 
 log("[service worker started]", {

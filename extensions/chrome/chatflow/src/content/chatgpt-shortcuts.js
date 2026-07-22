@@ -3,13 +3,27 @@
 
   const LOG_PREFIX = "[chatflow:chatgpt-shortcuts]";
   const STORAGE_KEY = "chatflowCustomShortcuts";
+  const PENDING_PROMPT_KEY = "chatflowPendingPrompt";
+  const PENDING_PROMPT_MAX_AGE_MS = 15000;
   let customShortcuts = [];
   let settingsOpen = false;
 
-  void chrome.storage.local.get(STORAGE_KEY).then((stored) => {
+  void chrome.storage.local.get([STORAGE_KEY, PENDING_PROMPT_KEY]).then((stored) => {
     customShortcuts = Array.isArray(stored[STORAGE_KEY])
       ? stored[STORAGE_KEY]
       : [];
+
+    const pending = stored[PENDING_PROMPT_KEY];
+    if (
+      pending &&
+      typeof pending.prompt === "string" &&
+      Date.now() - pending.createdAt <= PENDING_PROMPT_MAX_AGE_MS
+    ) {
+      void chrome.storage.local.remove(PENDING_PROMPT_KEY);
+      insertPromptWhenReady(pending.prompt);
+    } else if (pending) {
+      void chrome.storage.local.remove(PENDING_PROMPT_KEY);
+    }
   });
 
   function isVisible(element) {
@@ -44,38 +58,22 @@
     return true;
   }
 
-  function findNewChatButton() {
-    const labelledButton = firstVisible([
-      '[data-testid="new-chat-button"]',
-      'a[aria-label="New chat"]',
-      'a[aria-label="新建聊天"]',
-      'a[aria-label="新对话"]',
-    ]);
-    if (labelledButton) return labelledButton;
-
-    for (const link of document.querySelectorAll('a[href="/"]')) {
-      const text = link.textContent.trim().toLowerCase();
-      if (
-        isVisible(link) &&
-        (text.includes("new chat") || text.includes("新聊天") || text.includes("新对话"))
-      ) {
-        return link;
-      }
-    }
-
-    return null;
+  function isNewChatPage() {
+    return window.location.pathname === "/" && window.location.search === "";
   }
 
   function startNewChat() {
-    const button = findNewChatButton();
-    if (button) {
-      button.click();
-      window.setTimeout(focusPrompt, 800);
+    if (isNewChatPage()) {
+      focusPrompt();
       return true;
     }
 
-    console.warn(LOG_PREFIX, "New chat button not found; navigating to root.");
-    window.location.assign("/");
+    const targetUrl = `${window.location.origin}/`;
+    console.log(LOG_PREFIX, "Navigating directly to a new chat.", {
+      from: window.location.href,
+      to: targetUrl,
+    });
+    window.location.assign(targetUrl);
     return true;
   }
 
@@ -149,6 +147,14 @@
     return true;
   }
 
+  function insertPromptWhenReady(text, attemptsRemaining = 20) {
+    if (insertPrompt(text) || attemptsRemaining <= 1) return;
+    window.setTimeout(
+      () => insertPromptWhenReady(text, attemptsRemaining - 1),
+      100,
+    );
+  }
+
   function shortcutLabel(shortcut) {
     const parts = [];
     if (shortcut.ctrlKey) parts.push("Ctrl");
@@ -195,8 +201,15 @@
     }
 
     if (shortcut.newChat) {
+      if (isNewChatPage()) {
+        insertPromptWhenReady(prompt);
+        return;
+      }
+
+      await chrome.storage.local.set({
+        [PENDING_PROMPT_KEY]: { prompt, createdAt: Date.now() },
+      });
       startNewChat();
-      window.setTimeout(() => insertPrompt(prompt), 850);
       return;
     }
 

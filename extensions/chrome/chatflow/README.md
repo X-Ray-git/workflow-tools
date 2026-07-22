@@ -7,7 +7,7 @@ The existing Tampermonkey source files remain unchanged in `scripts/tampermonkey
 ## Current modules
 
 - **arXiv first visit:** redirects an arXiv abstract page to its PDF on the first visit to that paper.
-- **arXiv Split View:** opens ChatGPT in a newly created blank Chrome Split View pane beside an arXiv PDF.
+- **arXiv Split View:** opens ChatGPT in a newly created blank Chrome Split View pane beside an arXiv PDF, then attaches that PDF to ChatGPT.
 - **ChatGPT shortcuts:** adds the core navigation shortcuts from the existing userscript.
 
 ## Requirements
@@ -22,7 +22,7 @@ The existing Tampermonkey source files remain unchanged in `scripts/tampermonkey
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this `extensions/chrome/chatflow` directory, which directly contains `manifest.json`.
-5. Confirm that the extension card shows **ChatFlow 0.3.0**.
+5. Confirm that the extension card shows **ChatFlow 0.4.0**.
 
 After changing the source, return to `chrome://extensions/` and reload ChatFlow before testing again.
 
@@ -46,7 +46,11 @@ Custom shortcuts can insert a reusable prompt, optionally start a new chat first
 2. Keep the PDF as the active tab.
 3. Press `Command + Option + N` to create Chrome's native Split View.
 4. Confirm that the new blank pane navigates to `https://chatgpt.com/`.
-5. Confirm that the original PDF pane and URL remain unchanged.
+5. Wait for ChatFlow's status message and confirm that the PDF appears as an attachment in ChatGPT.
+6. Confirm that the original PDF pane and URL remain unchanged.
+7. Confirm that ChatFlow did not fill a prompt or send a message.
+
+ChatFlow fetches the PDF in memory and passes it only to the paired ChatGPT tab. It does not write the file to the Downloads folder. The transfer is limited to 50 MB and expires after two minutes if the paired ChatGPT page never claims it.
 
 The module must not navigate in these cases:
 
@@ -62,14 +66,14 @@ The module must not navigate in these cases:
 3. Repeat the complete Split View flow.
 4. Inspect messages prefixed with `[chatflow:arxiv-split-view]`.
 
-The successful path includes `[onCreated]`, `[splitView detected]`, `[matched arxiv]`, and `[update to ChatGPT]`. Skipped actions include `[skip]` and a reason.
+The successful path includes `[onCreated]`, `[splitView detected]`, `[matched arxiv]`, `[update to ChatGPT]`, and `[PDF transferred]`. Skipped actions include `[skip]` and a reason. PDF failures include `[PDF transfer failed]`.
 
 ## Automated tests
 
 From this directory, run:
 
 ```sh
-node --test tests/arxiv-split-view.test.js
+node --test tests/*.test.js
 ```
 
 ## Current permissions
@@ -78,4 +82,11 @@ node --test tests/arxiv-split-view.test.js
 - `storage`: stores the local arXiv first-visit history.
 - Access to `arxiv.org` and `chatgpt.com`: runs the two page-specific content scripts.
 
-ChatFlow does not read page content, upload PDFs, enter prompts, or send messages.
+ChatFlow does not read ChatGPT conversation content, enter prompts, or send messages. For a matched Split View action, it fetches the public arXiv PDF and places it in ChatGPT's existing file input so that ChatGPT can upload it after the user-triggered shortcut.
+
+## Documentation
+
+- [Architecture](docs/architecture.md): modules, data flow, storage, and safety boundaries.
+- [Development](docs/development.md): local setup, verification, versioning, and release workflow.
+- [Troubleshooting](docs/troubleshooting.md): common symptoms, logs, and recovery steps.
+- [Changelog](CHANGELOG.md): user-visible changes by version.

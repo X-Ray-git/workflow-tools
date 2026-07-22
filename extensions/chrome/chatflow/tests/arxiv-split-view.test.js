@@ -20,15 +20,33 @@ function event() {
   };
 }
 
-function createHarness(initialTabs) {
+function createHarness(initialTabs, fetchImpl = async () => {
+  throw new Error("Unexpected fetch");
+}) {
   const tabs = new Map(initialTabs.map((tab) => [tab.id, { ...tab }]));
   const updates = [];
   const onCreated = event();
   const onUpdated = event();
   const onActivated = event();
   const onRemoved = event();
+  const onConnect = event();
+  const sessionStorage = {};
 
   const chrome = {
+    storage: {
+      session: {
+        async get(key) {
+          return { [key]: sessionStorage[key] };
+        },
+        async set(update) {
+          Object.assign(sessionStorage, update);
+        },
+        async remove(key) {
+          delete sessionStorage[key];
+        },
+      },
+    },
+    runtime: { onConnect },
     tabs: {
       SPLIT_VIEW_ID_NONE: -1,
       onCreated,
@@ -57,6 +75,9 @@ function createHarness(initialTabs) {
   const immediateTimers = [];
   const context = {
     chrome,
+    fetch: fetchImpl,
+    btoa,
+    Uint8Array,
     URL,
     console: { log() {} },
     setTimeout(callback, delay) {
@@ -78,7 +99,15 @@ function createHarness(initialTabs) {
     await new Promise(setImmediate);
   }
 
-  return { onCreated, onUpdated, tabs, updates, flush };
+  return {
+    onConnect,
+    onCreated,
+    onUpdated,
+    sessionStorage,
+    tabs,
+    updates,
+    flush,
+  };
 }
 
 test("navigates a new blank pane beside an arXiv PDF", async () => {
@@ -102,6 +131,67 @@ test("navigates a new blank pane beside an arXiv PDF", async () => {
   assert.deepEqual(harness.updates, [
     { tabId: 2, change: { url: "https://chatgpt.com/" } },
   ]);
+  assert.equal(
+    harness.sessionStorage["pendingPdfUpload:2"].sourceUrl,
+    "https://arxiv.org/pdf/1706.03762",
+  );
+});
+
+test("streams the matched arXiv PDF only to the paired ChatGPT tab", async () => {
+  const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+  const sourceTab = {
+    id: 1,
+    windowId: 10,
+    url: "https://arxiv.org/pdf/1706.03762",
+    splitViewId: 42,
+  };
+  const targetTab = {
+    id: 2,
+    windowId: 10,
+    url: "chrome://newtab/",
+    splitViewId: 42,
+  };
+  const harness = createHarness([sourceTab, targetTab], async () => ({
+    ok: true,
+    status: 200,
+    body: null,
+    headers: {
+      get(name) {
+        if (name === "content-length") return String(pdfBytes.byteLength);
+        if (name === "content-type") return "application/pdf";
+        return null;
+      },
+    },
+    async arrayBuffer() {
+      return pdfBytes.buffer;
+    },
+  }));
+
+  harness.onCreated.emit(targetTab);
+  await harness.flush();
+
+  const messages = [];
+  const port = {
+    name: "chatflow-pdf-upload",
+    sender: { tab: { id: 2 } },
+    onMessage: event(),
+    postMessage(message) {
+      messages.push(message);
+    },
+    disconnect() {},
+  };
+  harness.onConnect.emit(port);
+  port.onMessage.emit({ type: "claim" });
+  await harness.flush();
+  await harness.flush();
+
+  assert.deepEqual(
+    messages.map((message) => message.type),
+    ["status", "start", "chunk", "done"],
+  );
+  assert.equal(messages[1].filename, "1706.03762.pdf");
+  assert.equal(messages[2].data, "JVBERg==");
+  assert.equal(harness.sessionStorage["pendingPdfUpload:2"], undefined);
 });
 
 test("does not navigate a blank pane beside a non-arXiv page", async () => {
