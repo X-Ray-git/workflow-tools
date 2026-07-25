@@ -62,19 +62,39 @@
     return window.location.pathname === "/" && window.location.search === "";
   }
 
+  function findNewChatButton() {
+    return firstVisible([
+      '[data-testid="create-new-chat-button"][href="/"]',
+    ]);
+  }
+
   function startNewChat() {
     if (isNewChatPage()) {
       focusPrompt();
-      return true;
+      return "current";
+    }
+
+    const button = findNewChatButton();
+    if (button) {
+      console.log(
+        LOG_PREFIX,
+        "Starting a new chat through ChatGPT's native entry.",
+      );
+      button.click();
+      return "native";
     }
 
     const targetUrl = `${window.location.origin}/`;
-    console.log(LOG_PREFIX, "Navigating directly to a new chat.", {
-      from: window.location.href,
-      to: targetUrl,
-    });
+    console.warn(
+      LOG_PREFIX,
+      "Native new chat entry not found; navigating directly.",
+      {
+        from: window.location.href,
+        to: targetUrl,
+      },
+    );
     window.location.assign(targetUrl);
-    return true;
+    return "navigation";
   }
 
   function findSidebarToggle() {
@@ -137,6 +157,17 @@
     if (!input) return false;
 
     input.focus();
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/plain", text);
+    const pasteEvent = new ClipboardEvent("paste", {
+      clipboardData: dataTransfer,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(pasteEvent);
+    if (pasteEvent.defaultPrevented) return true;
+
     const success = document.execCommand("insertText", false, text);
     if (!success || input.textContent.trim() === "") {
       const paragraph = document.createElement("p");
@@ -153,6 +184,19 @@
       () => insertPromptWhenReady(text, attemptsRemaining - 1),
       100,
     );
+  }
+
+  function consumePendingPromptAfterNewChat(text, attemptsRemaining = 150) {
+    window.setTimeout(() => {
+      if (isNewChatPage() && insertPrompt(text)) {
+        void chrome.storage.local.remove(PENDING_PROMPT_KEY);
+        return;
+      }
+
+      if (attemptsRemaining > 1) {
+        consumePendingPromptAfterNewChat(text, attemptsRemaining - 1);
+      }
+    }, 100);
   }
 
   function shortcutLabel(shortcut) {
@@ -209,7 +253,10 @@
       await chrome.storage.local.set({
         [PENDING_PROMPT_KEY]: { prompt, createdAt: Date.now() },
       });
-      startNewChat();
+      const result = startNewChat();
+      if (result === "native") {
+        consumePendingPromptAfterNewChat(prompt);
+      }
       return;
     }
 

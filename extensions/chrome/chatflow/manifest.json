@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChatFlow",
   "description": "Personal ChatGPT workflow tools, starting with opening ChatGPT beside arXiv PDFs in Chrome Split View.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minimum_chrome_version": "140",
   "permissions": [
     "storage",

@@ -2,6 +2,14 @@
 
 All notable ChatFlow changes are recorded here. ChatFlow uses semantic versioning while it remains a personal unpacked extension.
 
+## [0.4.1] - 2026-07-25
+
+### Fixed
+
+- Make `Cmd/Ctrl+O` use ChatGPT's active native new-chat entry for smooth in-app navigation, while ignoring inert or hidden duplicates and retaining direct navigation as a fallback.
+- Consume pending custom prompts after ChatGPT's native SPA new-chat transition without relying on a page reload.
+- Insert custom prompts via a synthetic `paste` event instead of `execCommand("insertText")`, matching ChatGPT's native paste path and preventing the page from freezing on long prompts.
+
 ## [0.4.0] - 2026-07-22
 
 ### Added

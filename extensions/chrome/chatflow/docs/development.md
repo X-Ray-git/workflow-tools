@@ -70,12 +70,14 @@ git status --short
 
 ### shortcuts
 
-- `Cmd/Ctrl+O` opens the ChatGPT root instead of another conversation.
+- `Cmd/Ctrl+O` starts a new chat without a full-page reload and never opens an existing conversation.
+- `Cmd/Ctrl+O` still opens the ChatGPT root when its native new-chat entry is unavailable.
 - `Cmd/Ctrl+I` focuses the composer.
 - `Cmd/Ctrl+L` toggles the sidebar.
 - `Cmd/Ctrl+Shift+N` toggles temporary chat.
 - `Cmd/Ctrl+Shift+,` opens the settings panel.
 - A custom prompt and `{{clipboard}}` replacement still work.
+- A custom shortcut configured to start a new chat inserts its prompt after the in-app transition.
 
 ## Versioning
 

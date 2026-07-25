@@ -22,7 +22,7 @@ The existing Tampermonkey source files remain unchanged in `scripts/tampermonkey
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this `extensions/chrome/chatflow` directory, which directly contains `manifest.json`.
-5. Confirm that the extension card shows **ChatFlow 0.4.0**.
+5. Confirm that the extension card shows **ChatFlow 0.4.1**.
 
 After changing the source, return to `chrome://extensions/` and reload ChatFlow before testing again.
 
